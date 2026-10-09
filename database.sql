@@ -12,36 +12,30 @@ CREATE TABLE users (
     phone VARCHAR(20),
     address TEXT,
     pickup_area VARCHAR(100) DEFAULT 'Kampala Central',
+    latitude DECIMAL(10,8) NULL,
+    longitude DECIMAL(11,8) NULL,
+    gps_last_updated DATETIME NULL,
     contractor_name VARCHAR(120) NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE bins (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    location VARCHAR(255) NOT NULL,
-    area_name VARCHAR(100) DEFAULT 'Kampala Central',
-    capacity INT DEFAULT 100,
-    current_level INT DEFAULT 0,
-    status ENUM('empty', 'half', 'full', 'overflow') DEFAULT 'empty',
-    last_emptied DATE,
+    truck_count INT DEFAULT 0,
+    truck_number_plates TEXT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE pickups (
     id INT AUTO_INCREMENT PRIMARY KEY,
     citizen_id INT NOT NULL,
-    bin_id INT,
     area_name VARCHAR(100) DEFAULT 'Kampala Central',
     requested_date DATE NOT NULL,
     preferred_time VARCHAR(50),
     status ENUM('pending', 'assigned', 'in_progress', 'completed', 'cancelled') DEFAULT 'pending',
+    pickup_type ENUM('routine','special') DEFAULT 'special',
+    routine_id INT NULL,
     collector_id INT NULL,
     assigned_at DATETIME NULL,
     completed_at DATETIME NULL,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (citizen_id) REFERENCES users(id),
-    FOREIGN KEY (bin_id) REFERENCES bins(id),
     FOREIGN KEY (collector_id) REFERENCES users(id)
 );
 
@@ -72,6 +66,8 @@ CREATE TABLE collector_applications (
     ursb_registered ENUM('yes', 'no') NOT NULL,
     operational_areas TEXT NOT NULL,
     has_truck ENUM('yes', 'no') NOT NULL,
+    truck_count INT DEFAULT 0,
+    truck_number_plates TEXT NULL,
     office_address TEXT NOT NULL,
     disposal_plan TEXT NOT NULL,
     status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
@@ -79,6 +75,20 @@ CREATE TABLE collector_applications (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     reviewed_at DATETIME NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE collector_routines (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    collector_id INT NOT NULL,
+    day_of_week ENUM('Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday') NOT NULL,
+    area_name VARCHAR(150) NOT NULL,
+    route_name VARCHAR(150) DEFAULT NULL,
+    start_time TIME NULL,
+    end_time TIME NULL,
+    notes TEXT NULL,
+    is_active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (collector_id) REFERENCES users(id)
 );
 
 CREATE TABLE collector_meetings (
@@ -94,7 +104,7 @@ CREATE TABLE collector_meetings (
 );
 
 INSERT INTO users (
-    username, email, password, full_name, role, approval_status, phone, address, pickup_area, contractor_name
+    username, email, password, full_name, role, approval_status, phone, address, pickup_area, latitude, longitude, contractor_name, truck_count, truck_number_plates
 ) VALUES (
     'admin',
     'admin@wastewise.ug',
@@ -105,11 +115,9 @@ INSERT INTO users (
     '0770000000',
     'Kampala Coordination Centre, Uganda',
     'Kampala Central',
-    'National Waste Systems Unit'
+    0.3163,
+    32.5822,
+    'National Waste Systems Unit',
+    0,
+    ''
 );
-
-INSERT INTO bins (location, area_name, capacity, current_level, status, last_emptied) VALUES
-('Kampala Central Market', 'Kampala Central', 100, 72, 'half', '2026-10-01'),
-('Nakawa Taxi Park', 'Nakawa', 100, 88, 'full', '2026-09-30'),
-('Makindye Roundabout', 'Makindye', 100, 54, 'half', '2026-09-28'),
-('Kawempe Division Hub', 'Kawempe', 100, 95, 'overflow', '2026-09-29');

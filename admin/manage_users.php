@@ -15,20 +15,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $address = trim($_POST['address'] ?? '');
     $pickupArea = trim($_POST['pickup_area'] ?? 'Kampala Central');
     $contractorName = trim($_POST['contractor_name'] ?? '');
+    $latitude = trim($_POST['latitude'] ?? '');
+    $longitude = trim($_POST['longitude'] ?? '');
+    $truckCount = max(0, (int)($_POST['truck_count'] ?? 0));
+    $truckNumberPlates = trim($_POST['truck_number_plates'] ?? '');
+    $companyName = trim($_POST['company_name'] ?? '');
+    $tradingLicense = trim($_POST['trading_license'] ?? '');
+    $nemaLicense = trim($_POST['nema_license'] ?? '');
+    $ursbRegistered = $_POST['ursb_registered'] ?? 'no';
+    $operationalAreas = trim($_POST['operational_areas'] ?? '');
+    $hasTruck = $_POST['has_truck'] ?? 'no';
+    $officeAddress = trim($_POST['office_address'] ?? '');
+    $disposalPlan = trim($_POST['disposal_plan'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    if (empty($full_name) || empty($username) || empty($email) || empty($role)) {
+    if ($latitude !== '' && (!is_numeric($latitude) || $latitude < -90 || $latitude > 90)) {
+        $error = 'Latitude is invalid. Please enter a value between -90 and 90.';
+    } elseif ($longitude !== '' && (!is_numeric($longitude) || $longitude < -180 || $longitude > 180)) {
+        $error = 'Longitude is invalid. Please enter a value between -180 and 180.';
+    }
+
+    if (!$error && (empty($full_name) || empty($username) || empty($email) || empty($role))) {
         $error = 'Please fill all required fields.';
-    } else {
+    } elseif (!$error && $id === 0 && $role === 'collector' && (!$companyName || !$tradingLicense || !$nemaLicense || !$operationalAreas || !$officeAddress || !$disposalPlan)) {
+        $error = 'Collector creation requires company name, trading license, NEMA license, operational areas, office address, and disposal plan.';
+    } elseif (!$error) {
         try {
             if ($id > 0) {
                 if (!empty($password)) {
                     $hashed = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare("UPDATE users SET full_name=?, username=?, email=?, role=?, phone=?, address=?, pickup_area=?, contractor_name=?, password=? WHERE id=?");
-                    $stmt->execute([$full_name, $username, $email, $role, $phone, $address, $pickupArea, $contractorName, $hashed, $id]);
+                    $stmt = $pdo->prepare("UPDATE users SET full_name=?, username=?, email=?, role=?, phone=?, address=?, pickup_area=?, contractor_name=?, latitude=?, longitude=?, truck_count=?, truck_number_plates=?, password=? WHERE id=?");
+                    $stmt->execute([$full_name, $username, $email, $role, $phone, $address, $pickupArea, $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $truckCount, $truckNumberPlates, $hashed, $id]);
                 } else {
-                    $stmt = $pdo->prepare("UPDATE users SET full_name=?, username=?, email=?, role=?, phone=?, address=?, pickup_area=?, contractor_name=? WHERE id=?");
-                    $stmt->execute([$full_name, $username, $email, $role, $phone, $address, $pickupArea, $contractorName, $id]);
+                    $stmt = $pdo->prepare("UPDATE users SET full_name=?, username=?, email=?, role=?, phone=?, address=?, pickup_area=?, contractor_name=?, latitude=?, longitude=?, truck_count=?, truck_number_plates=? WHERE id=?");
+                    $stmt->execute([$full_name, $username, $email, $role, $phone, $address, $pickupArea, $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $truckCount, $truckNumberPlates, $id]);
                 }
                 $success = 'User updated successfully!';
             } else {
@@ -36,12 +56,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Password is required for new users.';
                 } else {
                     $hashed = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare("INSERT INTO users (full_name, username, email, password, role, phone, address, pickup_area, contractor_name) VALUES (?,?,?,?,?,?,?,?,?)");
-                    $stmt->execute([$full_name, $username, $email, $hashed, $role, $phone, $address, $pickupArea, $contractorName]);
+                    $pdo->beginTransaction();
+                    $approvalStatus = $role === 'collector' ? 'pending' : 'approved';
+                    $stmt = $pdo->prepare("INSERT INTO users (full_name, username, email, password, role, approval_status, phone, address, pickup_area, contractor_name, latitude, longitude, truck_count, truck_number_plates) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                    $stmt->execute([$full_name, $username, $email, $hashed, $role, $approvalStatus, $phone, $address, $pickupArea, $role === 'collector' ? ($contractorName ?: $companyName) : $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $role === 'collector' ? $truckCount : 0, $role === 'collector' ? $truckNumberPlates : null]);
+                    $createdUserId = (int)$pdo->lastInsertId();
+                    if ($role === 'collector') {
+                        $application = $pdo->prepare('INSERT INTO collector_applications (user_id, company_name, trading_license, nema_license, ursb_registered, operational_areas, has_truck, truck_count, truck_number_plates, office_address, disposal_plan, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                        $application->execute([$createdUserId, $companyName, $tradingLicense, $nemaLicense, $ursbRegistered, $operationalAreas, $hasTruck, $truckCount, $truckNumberPlates, $officeAddress, $disposalPlan, 'pending']);
+                    }
+                    $pdo->commit();
                     $success = 'User created successfully!';
                 }
             }
         } catch (PDOException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             $error = 'Username or email already exists.';
         }
     }
@@ -83,7 +114,7 @@ $users = $pdo->query("SELECT * FROM users ORDER BY role, full_name")->fetchAll()
             <a href="assign_pickups.php">Assign Pickups</a>
             <a href="manage_complaints.php">Complaints</a>
             <a href="manage_users.php" class="active">Manage Users</a>
-            <a href="manage_bins.php">Manage Bins</a>
+            <a href="manage_routines.php">Routine Calendar</a>
         </div>
 
         <div class="col-md-10 p-4">
@@ -168,6 +199,22 @@ $users = $pdo->query("SELECT * FROM users ORDER BY role, full_name")->fetchAll()
                         <label class="form-label">Service area</label>
                         <input type="text" name="pickup_area" id="pickup_area" class="form-control" placeholder="e.g. Nakawa, Wandegeya, Entebbe">
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Latitude</label>
+                        <input type="number" step="0.000001" name="latitude" id="latitude" class="form-control" placeholder="0.3163">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Longitude</label>
+                        <input type="number" step="0.000001" name="longitude" id="longitude" class="form-control" placeholder="32.5822">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Truck count</label>
+                        <input type="number" name="truck_count" id="truck_count" min="0" class="form-control" value="0">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Truck number plates</label>
+                        <textarea name="truck_number_plates" id="truck_number_plates" class="form-control" rows="2" placeholder="UBA 123A, UBG 876X"></textarea>
+                    </div>
                     <div class="col-12">
                         <label class="form-label">Contractor name</label>
                         <input type="text" name="contractor_name" id="contractor_name" class="form-control" placeholder="KCCA Waste Team, GreenCity Uganda...">
@@ -175,6 +222,48 @@ $users = $pdo->query("SELECT * FROM users ORDER BY role, full_name")->fetchAll()
                     <div class="col-12">
                         <label class="form-label">Address</label>
                         <textarea name="address" id="address" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="col-12 d-none" id="collectorApplicationFields">
+                        <div class="row g-3 border-top pt-3 mt-1">
+                            <div class="col-md-6">
+                                <label class="form-label">Company / Business Name *</label>
+                                <input type="text" name="company_name" id="company_name" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Trading License Number *</label>
+                                <input type="text" name="trading_license" id="trading_license" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">NEMA License Number *</label>
+                                <input type="text" name="nema_license" id="nema_license" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Registered with URSB? *</label>
+                                <select name="ursb_registered" id="ursb_registered" class="form-select">
+                                    <option value="yes">Yes</option>
+                                    <option value="no">No</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Operational areas *</label>
+                                <input type="text" name="operational_areas" id="operational_areas" class="form-control" placeholder="Kampala Central, Nakawa, Entebbe">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Do you have a truck? *</label>
+                                <select name="has_truck" id="has_truck" class="form-select">
+                                    <option value="yes">Yes</option>
+                                    <option value="no">No</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Physical office address *</label>
+                                <textarea name="office_address" id="office_address" class="form-control" rows="2"></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Waste disposal plan *</label>
+                                <textarea name="disposal_plan" id="disposal_plan" class="form-control" rows="2"></textarea>
+                            </div>
+                        </div>
                     </div>
                     <div class="col-12">
                         <label class="form-label">Password <small class="text-muted">(required for new users)</small></label>
@@ -191,6 +280,18 @@ $users = $pdo->query("SELECT * FROM users ORDER BY role, full_name")->fetchAll()
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+const roleSelect = document.getElementById('role');
+const collectorApplicationFields = document.getElementById('collectorApplicationFields');
+function syncCollectorFields() {
+    const isCollector = roleSelect.value === 'collector' && !document.getElementById('userId').value;
+    collectorApplicationFields.classList.toggle('d-none', !isCollector);
+    collectorApplicationFields.querySelectorAll('input, select, textarea').forEach((field) => {
+        field.required = isCollector && ['company_name', 'trading_license', 'nema_license', 'operational_areas', 'office_address', 'disposal_plan'].includes(field.name);
+    });
+}
+
+roleSelect.addEventListener('change', syncCollectorFields);
+
 function resetForm() {
     document.getElementById('modalTitle').innerText = 'Add New User';
     document.getElementById('userId').value = '';
@@ -200,10 +301,15 @@ function resetForm() {
     document.getElementById('role').value = 'citizen';
     document.getElementById('phone').value = '';
     document.getElementById('pickup_area').value = '';
+    document.getElementById('latitude').value = '';
+    document.getElementById('longitude').value = '';
+    document.getElementById('truck_count').value = '0';
+    document.getElementById('truck_number_plates').value = '';
     document.getElementById('contractor_name').value = '';
     document.getElementById('address').value = '';
     document.getElementById('password').value = '';
     document.getElementById('password').required = true;
+    syncCollectorFields();
 }
 
 function editUser(u) {
@@ -215,10 +321,15 @@ function editUser(u) {
     document.getElementById('role').value = u.role || 'citizen';
     document.getElementById('phone').value = u.phone || '';
     document.getElementById('pickup_area').value = u.pickup_area || '';
+    document.getElementById('latitude').value = u.latitude || '';
+    document.getElementById('longitude').value = u.longitude || '';
+    document.getElementById('truck_count').value = u.truck_count || '0';
+    document.getElementById('truck_number_plates').value = u.truck_number_plates || '';
     document.getElementById('contractor_name').value = u.contractor_name || '';
     document.getElementById('address').value = u.address || '';
     document.getElementById('password').value = '';
     document.getElementById('password').required = false;
+    syncCollectorFields();
     new bootstrap.Modal(document.getElementById('userModal')).show();
 }
 </script>

@@ -58,7 +58,7 @@ if (isset($_SESSION['user_id'])) {
             <div class="col-md-4 feature-item">
                 <img class="feature-image" src="images/GARBAGE.jpg" alt="Citizen reporting waste issues in a city" loading="lazy">
                 <h4>Complaint Tracking</h4>
-                <p>Report overflowing bins, illegal dumping, blocked drains, or missed collections with photo evidence and status updates.</p>
+                <p>Report illegal dumping, blocked drains, or missed collections with photo evidence and status updates.</p>
             </div>
             <div class="col-md-4 feature-item">
                 <img class="feature-image" src="images/plastics.jpg" alt="Map and route planning for waste service areas" loading="lazy">

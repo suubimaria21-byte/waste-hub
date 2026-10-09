@@ -9,14 +9,14 @@ $completedPickups = $pdo->query("SELECT COUNT(*) FROM pickups WHERE status = 'co
 $openComplaints   = $pdo->query("SELECT COUNT(*) FROM complaints WHERE status = 'open'")->fetchColumn();
 $totalCitizens    = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'citizen'")->fetchColumn();
 $totalCollectors  = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'collector'")->fetchColumn();
-$totalBins        = $pdo->query("SELECT COUNT(*) FROM bins")->fetchColumn();
-$fullBins         = $pdo->query("SELECT COUNT(*) FROM bins WHERE status IN ('full', 'overflow')")->fetchColumn();
+$routeCount       = $pdo->query("SELECT COUNT(*) FROM collector_routines WHERE is_active = 1")->fetchColumn();
 
 $areaBreakdown = $pdo->query("SELECT pickup_area AS area, COUNT(*) AS total FROM users WHERE role='citizen' GROUP BY pickup_area ORDER BY total DESC")->fetchAll();
 $collectorLoad = $pdo->query("SELECT u.full_name, u.contractor_name, COUNT(p.id) AS assignments FROM users u LEFT JOIN pickups p ON p.collector_id = u.id WHERE u.role='collector' GROUP BY u.id, u.full_name, u.contractor_name ORDER BY assignments DESC")->fetchAll();
 
 $recentPickups = $pdo->query("SELECT p.*, u.full_name FROM pickups p JOIN users u ON p.citizen_id = u.id ORDER BY p.created_at DESC LIMIT 6")->fetchAll();
 $recentComplaints = $pdo->query("SELECT c.*, u.full_name FROM complaints c JOIN users u ON c.citizen_id = u.id ORDER BY c.created_at DESC LIMIT 5")->fetchAll();
+$mappedCitizens = $pdo->query("SELECT full_name, pickup_area, latitude, longitude FROM users WHERE role = 'citizen' AND latitude IS NOT NULL AND longitude IS NOT NULL ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -48,9 +48,9 @@ $recentComplaints = $pdo->query("SELECT c.*, u.full_name FROM complaints c JOIN 
             <a href="manage_complaints.php">Complaints</a>
             <a href="manage_users.php">Manage Users</a>
             <a href="manage_collector_applications.php">Collector Requests</a>
+            <a href="manage_routines.php">Routine Calendar</a>
             <a href="manage_meetings.php">Upcoming events</a>
             <a href="../profile.php">Edit Profile</a>
-            <a href="manage_bins.php">Manage Bins</a>
         </div>
 
         <div class="col-md-10 p-4">
@@ -99,10 +99,10 @@ $recentComplaints = $pdo->query("SELECT c.*, u.full_name FROM complaints c JOIN 
                     <div class="card stat-card">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <div class="text-muted small">Bins at risk</div>
-                                <h3 class="mb-0 text-danger"><?= $fullBins ?></h3>
+                                <div class="text-muted small">Routine coverage</div>
+                                <h3 class="mb-0 text-info"><?= $routeCount ?></h3>
                             </div>
-                            <div class="stat-icon text-danger">🗑️</div>
+                            <div class="stat-icon text-info">🗓️</div>
                         </div>
                     </div>
                 </div>
@@ -253,6 +253,24 @@ $recentComplaints = $pdo->query("SELECT c.*, u.full_name FROM complaints c JOIN 
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+
+    const citizens = <?= json_encode($mappedCitizens, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+    const citizenBounds = [];
+    citizens.forEach((citizen) => {
+        const position = [Number(citizen.latitude), Number(citizen.longitude)];
+        if (!Number.isFinite(position[0]) || !Number.isFinite(position[1])) return;
+        L.marker(position).addTo(map).bindPopup(
+            `<strong>${escapeHtml(citizen.full_name)}</strong><br>${escapeHtml(citizen.pickup_area || 'Area not set')}`
+        );
+        citizenBounds.push(position);
+    });
+    if (citizenBounds.length) map.fitBounds(citizenBounds, { padding: [24, 24], maxZoom: 13 });
+
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (character) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+        })[character]);
+    }
 </script>
 </body>
 </html>

@@ -3,6 +3,14 @@ require_once '../includes/auth.php';
 requireRole('collector');
 $user = getUser();
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['truck_number_plates'])) {
+    $plates = trim($_POST['truck_number_plates'] ?? '');
+    $count = max(0, (int)($_POST['truck_count'] ?? $user['truck_count'] ?? 0));
+    $stmt = $pdo->prepare('UPDATE users SET truck_number_plates = ?, truck_count = ? WHERE id = ?');
+    $stmt->execute([$plates, $count, $_SESSION['user_id']]);
+    $user = getUser();
+}
+
 $stmt = $pdo->prepare("SELECT p.*, u.full_name, u.phone, u.address, u.pickup_area FROM pickups p JOIN users u ON p.citizen_id = u.id WHERE p.collector_id = ? AND p.status IN ('assigned','in_progress') ORDER BY p.requested_date ASC");
 $stmt->execute([$_SESSION['user_id']]);
 $assigned = $stmt->fetchAll();
@@ -12,6 +20,8 @@ $complaints = $pdo->query("SELECT c.*, u.full_name AS citizen_name FROM complain
 $meetings = $pdo->prepare("SELECT * FROM collector_meetings WHERE audience = 'all' OR FIND_IN_SET(?, collector_ids) > 0 ORDER BY created_at DESC");
 $meetings->execute([$_SESSION['user_id']]);
 $meetings = $meetings->fetchAll();
+
+$routines = $pdo->query("SELECT * FROM collector_routines WHERE collector_id = {$_SESSION['user_id']} AND is_active = 1 ORDER BY FIELD(day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time")->fetchAll();
 
 if (isset($_GET['complete'])) {
     $id = (int)$_GET['complete'];
@@ -100,6 +110,75 @@ if (isset($_GET['resolveComplaint'])) {
                     <div class="stat-icon text-info">📍</div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-success text-white">Truck details</div>
+                <div class="card-body">
+                    <p><strong>Truck count:</strong> <?= (int)($user['truck_count'] ?? 0) ?></p>
+                    <p><strong>Number plates:</strong></p>
+                    <?php if (!empty($user['truck_number_plates'])): ?>
+                        <div class="bg-light p-3 rounded"><?= nl2br(htmlspecialchars($user['truck_number_plates'])) ?></div>
+                    <?php else: ?>
+                        <p class="text-muted mb-0">No trucks recorded yet.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-success text-white">Update truck list</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">How many trucks</label>
+                            <input type="number" name="truck_count" class="form-control" min="0" value="<?= htmlspecialchars((string)($user['truck_count'] ?? 0)) ?>">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Truck number plates</label>
+                            <textarea name="truck_number_plates" rows="5" class="form-control" placeholder="UBA 123A, UBG 876X"><?= htmlspecialchars($user['truck_number_plates'] ?? '') ?></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-success w-100">Save</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">Normal routing calendar</div>
+        <div class="card-body">
+            <?php if (empty($routines)): ?>
+                <p class="text-muted mb-0">No recurring route has been set for you yet.</p>
+            <?php else: ?>
+                <div class="table-responsive">
+                    <table class="table table-bordered mb-0">
+                        <thead>
+                            <tr>
+                                <th>Day</th>
+                                <th>Area</th>
+                                <th>Route</th>
+                                <th>Time</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($routines as $routine): ?>
+                                <tr>
+                                    <td><?= htmlspecialchars($routine['day_of_week']) ?></td>
+                                    <td><?= htmlspecialchars($routine['area_name']) ?></td>
+                                    <td><?= htmlspecialchars($routine['route_name'] ?: 'Standard route') ?></td>
+                                    <td><?= htmlspecialchars($routine['start_time'] ?: 'Flexible') ?><?= !empty($routine['end_time']) ? ' - ' . htmlspecialchars($routine['end_time']) : '' ?></td>
+                                    <td><?= nl2br(htmlspecialchars($routine['notes'] ?: '-')) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 

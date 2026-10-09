@@ -9,9 +9,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $address = trim($_POST['address'] ?? '');
+    $pickupArea = trim($_POST['pickup_area'] ?? $user['pickup_area'] ?? 'Kampala Central');
+    $latitude = trim($_POST['latitude'] ?? ($user['latitude'] ?? ''));
+    $longitude = trim($_POST['longitude'] ?? ($user['longitude'] ?? ''));
+    $truckCount = max(0, (int)($_POST['truck_count'] ?? ($user['truck_count'] ?? 0)));
+    $truckNumberPlates = trim($_POST['truck_number_plates'] ?? ($user['truck_number_plates'] ?? ''));
     $password = $_POST['password'] ?? '';
 
-    if (empty($username) || empty($email)) {
+    if ($latitude !== '' && (!is_numeric($latitude) || $latitude < -90 || $latitude > 90)) {
+        $error = 'Latitude is invalid. Please enter a value between -90 and 90.';
+    } elseif ($longitude !== '' && (!is_numeric($longitude) || $longitude < -180 || $longitude > 180)) {
+        $error = 'Longitude is invalid. Please enter a value between -180 and 180.';
+    } elseif (empty($username) || empty($email)) {
         $error = 'Username and email are required.';
     } else {
         $check = $pdo->prepare('SELECT id FROM users WHERE (username = ? OR email = ?) AND id != ? LIMIT 1');
@@ -23,8 +32,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($password !== '' && strlen($password) < 6) {
                 $error = 'New password must be at least 6 characters long.';
             } else {
-                $sql = 'UPDATE users SET username = ?, email = ?, phone = ?, address = ?';
-                $params = [$username, $email, $phone, $address];
+                $sql = 'UPDATE users SET username = ?, email = ?, phone = ?, address = ?, pickup_area = ?, latitude = ?, longitude = ?';
+                $params = [$username, $email, $phone, $address, $pickupArea, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null];
+
+                if ($user['role'] === 'collector') {
+                    $sql .= ', truck_count = ?, truck_number_plates = ?';
+                    $params[] = $truckCount;
+                    $params[] = $truckNumberPlates;
+                }
 
                 if ($password !== '') {
                     $sql .= ', password = ?';
@@ -94,9 +109,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <input type="email" name="email" class="form-control" value="<?= htmlspecialchars($user['email']) ?>" required>
                             </div>
                             <div class="col-md-6">
+                                <label class="form-label">Service area</label>
+                                <input type="text" name="pickup_area" class="form-control" value="<?= htmlspecialchars($user['pickup_area'] ?? '') ?>">
+                            </div>
+                            <div class="col-md-6">
                                 <label class="form-label">Phone number</label>
                                 <input type="text" name="phone" class="form-control" value="<?= htmlspecialchars($user['phone'] ?? '') ?>">
                             </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Latitude</label>
+                                <input type="number" step="0.000001" name="latitude" class="form-control" value="<?= htmlspecialchars((string)($user['latitude'] ?? '')) ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Longitude</label>
+                                <input type="number" step="0.000001" name="longitude" class="form-control" value="<?= htmlspecialchars((string)($user['longitude'] ?? '')) ?>">
+                            </div>
+                            <?php if ($user['role'] === 'collector'): ?>
+                            <div class="col-md-6">
+                                <label class="form-label">Truck count</label>
+                                <input type="number" name="truck_count" min="0" class="form-control" value="<?= htmlspecialchars((string)($user['truck_count'] ?? 0)) ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Truck number plates</label>
+                                <textarea name="truck_number_plates" class="form-control" rows="2"><?= htmlspecialchars($user['truck_number_plates'] ?? '') ?></textarea>
+                            </div>
+                            <?php endif; ?>
                             <div class="col-md-6">
                                 <label class="form-label">New password</label>
                                 <div class="input-group">

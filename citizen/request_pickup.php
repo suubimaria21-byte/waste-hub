@@ -6,22 +6,22 @@ $user = getUser();
 $success = $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $requested_date = $_POST['requested_date'];
+    $requested_date = trim($_POST['requested_date'] ?? '');
     $preferred_time = $_POST['preferred_time'] ?? '';
     $notes = trim($_POST['notes'] ?? '');
     $areaName = trim($_POST['area_name'] ?? $user['pickup_area'] ?? 'Kampala Central');
-    $bin_id = !empty($_POST['bin_id']) ? (int)$_POST['bin_id'] : null;
 
     if (empty($requested_date)) {
-        $error = 'Please select a date.';
+        $error = 'Please select a pickup date.';
     } else {
-        $stmt = $pdo->prepare("INSERT INTO pickups (citizen_id, bin_id, area_name, requested_date, preferred_time, notes) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$_SESSION['user_id'], $bin_id, $areaName, $requested_date, $preferred_time, $notes]);
+        $collectorId = autoAssignCollector($pdo, $_SESSION['user_id'], $areaName, !empty($user['latitude']) ? (float)$user['latitude'] : null, !empty($user['longitude']) ? (float)$user['longitude'] : null);
+        $stmt = $pdo->prepare("INSERT INTO pickups (citizen_id, area_name, requested_date, preferred_time, status, pickup_type, collector_id, assigned_at, notes) VALUES (?, ?, ?, ?, ?, 'special', ?, NOW(), ?)");
+        $stmt->execute([$_SESSION['user_id'], $areaName, $requested_date, $preferred_time, $collectorId ? 'assigned' : 'pending', $collectorId, $notes]);
         $success = 'Pickup request submitted successfully!';
     }
 }
 
-$bins = $pdo->query("SELECT id, location, area_name FROM bins ORDER BY area_name, location")->fetchAll();
+$routines = $pdo->query("SELECT r.*, u.full_name AS collector_name FROM collector_routines r JOIN users u ON u.id = r.collector_id WHERE r.is_active = 1 ORDER BY FIELD(r.day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), r.start_time")->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -41,8 +41,8 @@ $bins = $pdo->query("SELECT id, location, area_name FROM bins ORDER BY area_name
 
 <div class="container py-5">
     <div class="row justify-content-center">
-        <div class="col-md-7">
-            <div class="card shadow">
+        <div class="col-md-8">
+            <div class="card shadow mb-4">
                 <div class="card-body p-4">
                     <h3 class="text-success mb-4">Request a waste pickup</h3>
                     <?php if ($success): ?><div class="alert alert-success"><?= htmlspecialchars($success) ?></div><?php endif; ?>
@@ -63,18 +63,9 @@ $bins = $pdo->query("SELECT id, location, area_name FROM bins ORDER BY area_name
                                     <option value="Evening (4-7)">Evening (4-7)</option>
                                 </select>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-12">
                                 <label class="form-label">Pickup location</label>
                                 <input type="text" name="area_name" class="form-control" value="<?= htmlspecialchars($user['pickup_area'] ?: '') ?>" placeholder="e.g. Kisaasi, Wandegeya, Ntinda">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Nearest bin (optional)</label>
-                                <select name="bin_id" class="form-select">
-                                    <option value="">-- Select bin --</option>
-                                    <?php foreach ($bins as $b): ?>
-                                        <option value="<?= $b['id'] ?>"><?= htmlspecialchars($b['location']) ?> (<?= htmlspecialchars($b['area_name']) ?>)</option>
-                                    <?php endforeach; ?>
-                                </select>
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Additional notes</label>
@@ -86,6 +77,38 @@ $bins = $pdo->query("SELECT id, location, area_name FROM bins ORDER BY area_name
                     <div class="mt-3 text-center">
                         <a href="dashboard.php">← Back to dashboard</a>
                     </div>
+                </div>
+            </div>
+
+            <div class="card shadow">
+                <div class="card-header bg-success text-white">Normal collection routine</div>
+                <div class="card-body">
+                    <?php if (empty($routines)): ?>
+                        <p class="text-muted mb-0">No routine has been scheduled yet.</p>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Day</th>
+                                        <th>Collector</th>
+                                        <th>Area</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($routines as $routine): ?>
+                                        <tr>
+                                            <td><?= htmlspecialchars($routine['day_of_week']) ?></td>
+                                            <td><?= htmlspecialchars($routine['collector_name']) ?></td>
+                                            <td><?= htmlspecialchars($routine['area_name']) ?></td>
+                                            <td><?= htmlspecialchars($routine['start_time'] ?: 'Flexible') ?><?= !empty($routine['end_time']) ? ' - ' . htmlspecialchars($routine['end_time']) : '' ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

@@ -2,18 +2,24 @@
 require_once '../includes/auth.php';
 requireRole('admin');
 
-$success = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pickup_id'])) {
-    $pickup_id = (int)$_POST['pickup_id'];
-    $collector_id = (int)$_POST['collector_id'];
-    $stmt = $pdo->prepare("UPDATE pickups SET collector_id=?, status='assigned', assigned_at=NOW() WHERE id=?");
-    $stmt->execute([$collector_id, $pickup_id]);
-    $success = 'Pickup assigned successfully!';
+$unassigned = $pdo->query("SELECT p.id, p.citizen_id, p.area_name, u.latitude, u.longitude FROM pickups p JOIN users u ON u.id = p.citizen_id WHERE p.status = 'pending' AND p.collector_id IS NULL ORDER BY p.created_at ASC")->fetchAll(PDO::FETCH_ASSOC);
+$assignedCount = 0;
+foreach ($unassigned as $pickup) {
+    $collectorId = autoAssignCollector(
+        $pdo,
+        (int)$pickup['citizen_id'],
+        (string)($pickup['area_name'] ?: ''),
+        $pickup['latitude'] !== null ? (float)$pickup['latitude'] : null,
+        $pickup['longitude'] !== null ? (float)$pickup['longitude'] : null
+    );
+    if ($collectorId !== null) {
+        $stmt = $pdo->prepare("UPDATE pickups SET collector_id = ?, status = 'assigned', assigned_at = NOW() WHERE id = ? AND status = 'pending' AND collector_id IS NULL");
+        $stmt->execute([$collectorId, (int)$pickup['id']]);
+        $assignedCount += $stmt->rowCount();
+    }
 }
 
-$pending = $pdo->query("SELECT p.*, u.full_name, u.phone, u.pickup_area FROM pickups p JOIN users u ON p.citizen_id = u.id WHERE p.status = 'pending' ORDER BY p.created_at ASC")->fetchAll();
-$collectors = $pdo->query("SELECT id, full_name, contractor_name, pickup_area FROM users WHERE role='collector' ORDER BY contractor_name, full_name")->fetchAll();
+$pending = $pdo->query("SELECT p.*, u.full_name, u.phone, u.pickup_area, c.full_name AS collector_name FROM pickups p JOIN users u ON u.id = p.citizen_id LEFT JOIN users c ON c.id = p.collector_id WHERE p.status = 'pending' OR p.status = 'assigned' ORDER BY p.requested_date ASC, p.created_at ASC")->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -32,11 +38,11 @@ $collectors = $pdo->query("SELECT id, full_name, contractor_name, pickup_area FR
 </nav>
 
 <div class="container py-4">
-    <h2 class="mb-4">Assign pickups to collection teams</h2>
-    <?php if ($success): ?><div class="alert alert-success"><?= htmlspecialchars($success) ?></div><?php endif; ?>
+    <h2 class="mb-4">Automatic pickup assignments</h2>
+    <?php if ($assignedCount > 0): ?><div class="alert alert-success"><?= (int)$assignedCount ?> pending pickup(s) automatically assigned.</div><?php endif; ?>
 
     <?php if (empty($pending)): ?>
-        <div class="alert alert-info">No pending pickup requests.</div>
+        <div class="alert alert-info">No pending or assigned pickup requests.</div>
     <?php else: ?>
         <div class="table-responsive">
             <table class="table table-bordered table-hover">
@@ -47,7 +53,7 @@ $collectors = $pdo->query("SELECT id, full_name, contractor_name, pickup_area FR
                         <th>Date</th>
                         <th>Phone</th>
                         <th>Notes</th>
-                        <th>Assign To</th>
+                        <th>Collector</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -58,18 +64,7 @@ $collectors = $pdo->query("SELECT id, full_name, contractor_name, pickup_area FR
                             <td><?= htmlspecialchars($p['requested_date']) ?></td>
                             <td><?= htmlspecialchars($p['phone']) ?></td>
                             <td><?= htmlspecialchars($p['notes'] ?: '-') ?></td>
-                            <td>
-                                <form method="POST" class="d-flex gap-2">
-                                    <input type="hidden" name="pickup_id" value="<?= $p['id'] ?>">
-                                    <select name="collector_id" class="form-select form-select-sm" required>
-                                        <option value="">Select collector</option>
-                                        <?php foreach ($collectors as $c): ?>
-                                            <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['full_name']) ?> - <?= htmlspecialchars($c['contractor_name'] ?: 'KCCA Team') ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                    <button type="submit" class="btn btn-sm btn-success">Assign</button>
-                                </form>
-                            </td>
+                                    <td><?= htmlspecialchars($p['collector_name'] ?: 'No approved collector available') ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

@@ -53,7 +53,7 @@ $applications = $pdo->query(
             <a href="manage_complaints.php">Complaints</a>
             <a href="manage_users.php">Manage Users</a>
             <a href="manage_collector_applications.php" class="active">Collector Requests</a>
-            <a href="manage_bins.php">Manage Bins</a>
+            <a href="manage_routines.php">Routine Calendar</a>
         </div>
 
         <div class="col-md-10 p-4">
@@ -82,6 +82,8 @@ $applications = $pdo->query(
                                 <div class="col-md-6"><strong>URSB Registered:</strong> <?= htmlspecialchars($app['ursb_registered'] === 'yes' ? 'Yes' : 'No') ?></div>
                                 <div class="col-md-6"><strong>Operational Areas:</strong> <?= htmlspecialchars($app['operational_areas']) ?></div>
                                 <div class="col-md-6"><strong>Truck Available:</strong> <?= htmlspecialchars($app['has_truck'] === 'yes' ? 'Yes' : 'No') ?></div>
+                                <div class="col-md-6"><strong>Truck Count:</strong> <?= (int)($app['truck_count'] ?? 0) ?></div>
+                                <div class="col-md-6"><strong>Truck Number Plates:</strong> <?= nl2br(htmlspecialchars($app['truck_number_plates'] ?? 'Not provided')) ?></div>
                                 <div class="col-12"><strong>Office Address:</strong> <?= nl2br(htmlspecialchars($app['office_address'])) ?></div>
                                 <div class="col-12"><strong>Waste Disposal Plan:</strong> <?= nl2br(htmlspecialchars($app['disposal_plan'])) ?></div>
                                 <?php if (!empty($app['admin_notes'])): ?>

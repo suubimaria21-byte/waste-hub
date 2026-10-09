@@ -6,10 +6,10 @@ $user = getUser();
 $success = $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $title = trim($_POST['title']);
-    $description = trim($_POST['description']);
-    $location = trim($_POST['location'] ?? '');
+    $title = trim($_POST['title'] ?? '');
+    $description = trim($_POST['description'] ?? '');
     $areaName = trim($_POST['area_name'] ?? $user['pickup_area'] ?? 'Kampala Central');
+    $location = trim($_POST['location'] ?? '');
     $photo = null;
 
     if (empty($title) || empty($description)) {
@@ -76,23 +76,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php if ($success): ?><div class="alert alert-success"><?= htmlspecialchars($success) ?></div><?php endif; ?>
                     <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
-                    <form method="POST" enctype="multipart/form-data">
+                    <form method="POST" enctype="multipart/form-data" id="complaintForm" novalidate>
                         <div class="mb-3">
                             <label class="form-label">Issue Title *</label>
-                            <input type="text" name="title" class="form-control" required>
+                            <input type="text" name="title" class="form-control" value="<?= htmlspecialchars($_POST['title'] ?? '') ?>" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Description *</label>
-                            <textarea name="description" class="form-control" rows="4" required></textarea>
+                            <textarea name="description" class="form-control" rows="4" required><?= htmlspecialchars($_POST['description'] ?? '') ?></textarea>
                         </div>
                         <div class="row g-3">
-                            <div class="col-md-6">
+                            <div class="col-md-12">
                                 <label class="form-label">Pickup location</label>
-                                <input type="text" name="area_name" class="form-control" value="<?= htmlspecialchars($user['pickup_area'] ?: '') ?>" placeholder="e.g. Kisaasi, Wandegeya, Ntinda">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Location / Landmark</label>
-                                <input type="text" name="location" class="form-control" placeholder="e.g. near Taxi Park, road side, market...">
+                                <input type="text" name="area_name" class="form-control" value="<?= htmlspecialchars($_POST['area_name'] ?? $user['pickup_area'] ?: '') ?>" placeholder="e.g. Kisaasi, Wandegeya, Ntinda">
                             </div>
                         </div>
                         <div class="mb-3 mt-3">
@@ -109,5 +105,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
 </div>
+<script>
+const complaintForm = document.getElementById('complaintForm');
+if (complaintForm) {
+    complaintForm.addEventListener('submit', function (event) {
+        const title = complaintForm.querySelector('input[name="title"]');
+        const description = complaintForm.querySelector('textarea[name="description"]');
+        let message = '';
+
+        if (!title.value.trim()) {
+            message = 'Issue title is required. Please give the complaint a short title.';
+            title.focus();
+        } else if (!description.value.trim()) {
+            message = 'Complaint description is required. Please describe the issue in enough detail.';
+            description.focus();
+        }
+
+        if (message) {
+            event.preventDefault();
+            const alertBox = document.createElement('div');
+            alertBox.className = 'alert alert-danger mt-3';
+            alertBox.textContent = message;
+            const existing = complaintForm.querySelector('.alert-danger');
+            if (existing) existing.remove();
+            complaintForm.insertBefore(alertBox, complaintForm.querySelector('button[type="submit"]'));
+        }
+    });
+}
+</script>
 </body>
 </html>

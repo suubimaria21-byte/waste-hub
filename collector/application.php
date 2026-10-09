@@ -23,6 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ursbRegistered = $_POST['ursb_registered'] ?? 'no';
     $operationalAreas = trim($_POST['operational_areas'] ?? '');
     $hasTruck = $_POST['has_truck'] ?? 'no';
+    $truckCount = max(0, (int)($_POST['truck_count'] ?? 0));
+    $truckNumberPlates = trim($_POST['truck_number_plates'] ?? '');
     $officeAddress = trim($_POST['office_address'] ?? '');
     $disposalPlan = trim($_POST['disposal_plan'] ?? '');
 
@@ -32,18 +34,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $status = 'pending';
         if ($app) {
             $stmt = $pdo->prepare(
-                'UPDATE collector_applications SET company_name=?, trading_license=?, nema_license=?, ursb_registered=?, operational_areas=?, has_truck=?, office_address=?, disposal_plan=?, status=?, admin_notes=NULL, reviewed_at=NULL WHERE id=?'
+                'UPDATE collector_applications SET company_name=?, trading_license=?, nema_license=?, ursb_registered=?, operational_areas=?, has_truck=?, truck_count=?, truck_number_plates=?, office_address=?, disposal_plan=?, status=?, admin_notes=NULL, reviewed_at=NULL WHERE id=?'
             );
-            $stmt->execute([$companyName, $tradingLicense, $nemaLicense, $ursbRegistered, $operationalAreas, $hasTruck, $officeAddress, $disposalPlan, $status, $app['id']]);
+            $stmt->execute([$companyName, $tradingLicense, $nemaLicense, $ursbRegistered, $operationalAreas, $hasTruck, $truckCount, $truckNumberPlates, $officeAddress, $disposalPlan, $status, $app['id']]);
         } else {
             $stmt = $pdo->prepare(
-                'INSERT INTO collector_applications (user_id, company_name, trading_license, nema_license, ursb_registered, operational_areas, has_truck, office_address, disposal_plan, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO collector_applications (user_id, company_name, trading_license, nema_license, ursb_registered, operational_areas, has_truck, truck_count, truck_number_plates, office_address, disposal_plan, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $stmt->execute([$user['id'], $companyName, $tradingLicense, $nemaLicense, $ursbRegistered, $operationalAreas, $hasTruck, $officeAddress, $disposalPlan, $status]);
+            $stmt->execute([$user['id'], $companyName, $tradingLicense, $nemaLicense, $ursbRegistered, $operationalAreas, $hasTruck, $truckCount, $truckNumberPlates, $officeAddress, $disposalPlan, $status]);
         }
 
-        $userUpdate = $pdo->prepare('UPDATE users SET approval_status = ? WHERE id = ?');
-        $userUpdate->execute(['pending', $user['id']]);
+        $userUpdate = $pdo->prepare('UPDATE users SET approval_status = ?, truck_count = ?, truck_number_plates = ? WHERE id = ?');
+        $userUpdate->execute(['pending', $truckCount, $truckNumberPlates, $user['id']]);
         $success = 'Your collector application has been submitted successfully and is awaiting admin review.';
         $application = $pdo->prepare('SELECT * FROM collector_applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1');
         $application->execute([$user['id']]);
@@ -124,6 +126,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <option value="yes" <?= (($app['has_truck'] ?? 'yes') === 'yes') ? 'selected' : '' ?>>Yes</option>
                                     <option value="no" <?= (($app['has_truck'] ?? 'yes') === 'no') ? 'selected' : '' ?>>No</option>
                                 </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">How many trucks do you operate? *</label>
+                                <input type="number" name="truck_count" min="0" class="form-control" value="<?= htmlspecialchars($app['truck_count'] ?? $user['truck_count'] ?? 1) ?>" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Truck number plates *</label>
+                                <textarea name="truck_number_plates" class="form-control" rows="2" placeholder="e.g. UBA 123A, UBG 876X"><?= htmlspecialchars($app['truck_number_plates'] ?? $user['truck_number_plates'] ?? '') ?></textarea>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Desired operational area(s) *</label>

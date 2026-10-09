@@ -53,8 +53,8 @@ $meetings = $pdo->query("SELECT m.*, u.full_name AS admin_name FROM collector_me
             <a href="manage_complaints.php">Complaints</a>
             <a href="manage_users.php">Manage Users</a>
             <a href="manage_collector_applications.php">Collector Requests</a>
+            <a href="manage_routines.php">Routine Calendar</a>
             <a href="manage_meetings.php" class="active">Collector Meetings</a>
-            <a href="manage_bins.php">Manage Bins</a>
         </div>
 
         <div class="col-md-10 p-4">

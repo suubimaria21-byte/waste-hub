@@ -18,11 +18,15 @@ function columnExists(PDO $pdo, string $table, string $column): bool
 
 function ensureDatabaseSchema(PDO $pdo): void
 {
-    if (columnExists($pdo, 'users', 'latitude')) {
-        $pdo->exec('ALTER TABLE users DROP COLUMN latitude');
-    }
-    if (columnExists($pdo, 'users', 'longitude')) {
-        $pdo->exec('ALTER TABLE users DROP COLUMN longitude');
+    if (tableExists($pdo, 'bins')) {
+        $fk = $pdo->query("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pickups' AND REFERENCED_TABLE_NAME = 'bins' LIMIT 1")->fetchColumn();
+        if ($fk) {
+            $pdo->exec("ALTER TABLE pickups DROP FOREIGN KEY `$fk`");
+        }
+        if (columnExists($pdo, 'pickups', 'bin_id')) {
+            $pdo->exec('ALTER TABLE pickups DROP COLUMN bin_id');
+        }
+        $pdo->exec('DROP TABLE IF EXISTS bins');
     }
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS collector_applications (
@@ -34,6 +38,8 @@ function ensureDatabaseSchema(PDO $pdo): void
         ursb_registered ENUM('yes', 'no') NOT NULL,
         operational_areas TEXT NOT NULL,
         has_truck ENUM('yes', 'no') NOT NULL,
+        truck_count INT DEFAULT 0,
+        truck_number_plates TEXT NULL,
         office_address TEXT NOT NULL,
         disposal_plan TEXT NOT NULL,
         status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
@@ -42,6 +48,27 @@ function ensureDatabaseSchema(PDO $pdo): void
         reviewed_at DATETIME NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
     )");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS collector_routines (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        collector_id INT NOT NULL,
+        day_of_week ENUM('Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday') NOT NULL,
+        area_name VARCHAR(150) NOT NULL,
+        route_name VARCHAR(150) DEFAULT NULL,
+        start_time TIME NULL,
+        end_time TIME NULL,
+        notes TEXT NULL,
+        is_active TINYINT(1) DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (collector_id) REFERENCES users(id)
+    )");
+
+    if (!columnExists($pdo, 'collector_applications', 'truck_count')) {
+        $pdo->exec('ALTER TABLE collector_applications ADD COLUMN truck_count INT DEFAULT 0 AFTER has_truck');
+    }
+    if (!columnExists($pdo, 'collector_applications', 'truck_number_plates')) {
+        $pdo->exec('ALTER TABLE collector_applications ADD COLUMN truck_number_plates TEXT NULL AFTER truck_count');
+    }
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS collector_meetings (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -57,6 +84,27 @@ function ensureDatabaseSchema(PDO $pdo): void
 
     if (!columnExists($pdo, 'users', 'approval_status')) {
         $pdo->exec("ALTER TABLE users ADD COLUMN approval_status ENUM('pending', 'approved', 'rejected') DEFAULT 'approved' AFTER role");
+    }
+    if (!columnExists($pdo, 'users', 'latitude')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN latitude DECIMAL(10,8) NULL AFTER pickup_area');
+    }
+    if (!columnExists($pdo, 'users', 'longitude')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN longitude DECIMAL(11,8) NULL AFTER latitude');
+    }
+    if (!columnExists($pdo, 'users', 'truck_count')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN truck_count INT DEFAULT 0 AFTER pickup_area');
+    }
+    if (!columnExists($pdo, 'users', 'truck_number_plates')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN truck_number_plates TEXT NULL AFTER truck_count');
+    }
+    if (!columnExists($pdo, 'users', 'gps_last_updated')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN gps_last_updated DATETIME NULL AFTER longitude');
+    }
+    if (!columnExists($pdo, 'pickups', 'pickup_type')) {
+        $pdo->exec("ALTER TABLE pickups ADD COLUMN pickup_type ENUM('routine','special') DEFAULT 'special' AFTER status");
+    }
+    if (!columnExists($pdo, 'pickups', 'routine_id')) {
+        $pdo->exec('ALTER TABLE pickups ADD COLUMN routine_id INT NULL AFTER pickup_type');
     }
 }
 
