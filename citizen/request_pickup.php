@@ -4,20 +4,74 @@ requireRole('citizen');
 $user = getUser();
 
 $success = $error = '';
+$rates = [
+    'informal_household' => 1000,
+    'apartment' => 3000,
+    'commercial_entity' => 8000,
+    'institution' => 90000,
+];
+$billingCategory = $user['billing_category'] ?? 'informal_household';
+$unitType = $billingCategory === 'institution' ? 'load' : 'bag';
+$unitPrice = $rates[$billingCategory] ?? $rates['informal_household'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $requested_date = trim($_POST['requested_date'] ?? '');
     $preferred_time = $_POST['preferred_time'] ?? '';
     $notes = trim($_POST['notes'] ?? '');
     $areaName = trim($_POST['area_name'] ?? $user['pickup_area'] ?? 'Kampala Central');
+    $quantity = filter_var($_POST['quantity'] ?? null, FILTER_VALIDATE_INT);
+    $paymentTimingOptions = ['before_collection', 'on_pickup', 'monthly', 'annually'];
+    $paymentMethodOptions = ['airtel_money', 'mtn_momo', 'visa', 'mastercard'];
+    $paymentTiming = in_array($_POST['payment_timing'] ?? '', $paymentTimingOptions, true) ? $_POST['payment_timing'] : '';
+    $paymentMethod = in_array($_POST['payment_method'] ?? '', $paymentMethodOptions, true) ? $_POST['payment_method'] : '';
+    $parsedRequestedDate = DateTime::createFromFormat('!Y-m-d', $requested_date);
 
-    if (empty($requested_date)) {
+    if (!$parsedRequestedDate || $parsedRequestedDate->format('Y-m-d') !== $requested_date || $requested_date < date('Y-m-d')) {
         $error = 'Please select a pickup date.';
+    } elseif ($quantity === false || $quantity < 1 || $quantity > 5000) {
+        $error = 'Enter a quantity between 1 and 5,000 ' . $unitType . '(s).';
+    } elseif ($paymentTiming === '') {
+        $error = 'Choose when you want to pay.';
+    } elseif ($paymentMethod === '') {
+        $error = 'Choose a payment method.';
     } else {
-        $collectorId = autoAssignCollector($pdo, $_SESSION['user_id'], $areaName, !empty($user['latitude']) ? (float)$user['latitude'] : null, !empty($user['longitude']) ? (float)$user['longitude'] : null);
-        $stmt = $pdo->prepare("INSERT INTO pickups (citizen_id, area_name, requested_date, preferred_time, status, pickup_type, collector_id, assigned_at, notes) VALUES (?, ?, ?, ?, ?, 'special', ?, NOW(), ?)");
-        $stmt->execute([$_SESSION['user_id'], $areaName, $requested_date, $preferred_time, $collectorId ? 'assigned' : 'pending', $collectorId, $notes]);
-        $success = 'Pickup request submitted successfully!';
+        $dayOfWeek = date('l', strtotime($requested_date));
+        $collectorId = autoAssignCollector($pdo, $_SESSION['user_id'], $areaName, !empty($user['latitude']) ? (float)$user['latitude'] : null, !empty($user['longitude']) ? (float)$user['longitude'] : null, $dayOfWeek);
+        $routineId = null;
+        if ($collectorId) {
+            $routineStmt = $pdo->prepare("SELECT id FROM collector_routines WHERE collector_id = ? AND is_active = 1 AND day_of_week = ? AND LOWER(TRIM(area_name)) = LOWER(?) ORDER BY start_time LIMIT 1");
+            $routineStmt->execute([$collectorId, $dayOfWeek, $areaName]);
+            $routineId = $routineStmt->fetchColumn();
+            $routineId = $routineId !== false ? (int)$routineId : null;
+        }
+        $totalAmount = $quantity * $unitPrice;
+        $dueAt = match ($paymentTiming) {
+            'before_collection' => date('Y-m-d'),
+            'on_pickup' => $requested_date,
+            'monthly' => (new DateTimeImmutable('first day of next month'))->format('Y-m-d'),
+            'annually' => (new DateTimeImmutable('first day of January next year'))->format('Y-m-d'),
+        };
+        $paymentStatus = match ($paymentTiming) {
+            'before_collection' => 'awaiting_payment',
+            'on_pickup' => 'due_on_pickup',
+            default => 'scheduled',
+        };
+
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare("INSERT INTO pickups (citizen_id, area_name, requested_date, preferred_time, status, pickup_type, routine_id, collector_id, assigned_at, notes) VALUES (?, ?, ?, ?, ?, 'special', ?, ?, NOW(), ?)");
+            $stmt->execute([$_SESSION['user_id'], $areaName, $requested_date, $preferred_time, $collectorId ? 'assigned' : 'pending', $routineId, $collectorId, $notes]);
+            $pickupId = (int)$pdo->lastInsertId();
+            $paymentStmt = $pdo->prepare('INSERT INTO pickup_payments (pickup_id, citizen_id, billing_category, quantity, unit_type, unit_price, total_amount, payment_timing, payment_method, status, due_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            $paymentStmt->execute([$pickupId, $_SESSION['user_id'], $billingCategory, $quantity, $unitType, $unitPrice, $totalAmount, $paymentTiming, $paymentMethod, $paymentStatus, $dueAt]);
+            $pdo->commit();
+            $success = 'Pickup submitted. Invoice: UGX ' . number_format($totalAmount) . ' for ' . $quantity . ' ' . $unitType . '(s). Payment status: ' . str_replace('_', ' ', $paymentStatus) . '.';
+        } catch (PDOException $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $error = 'The pickup could not be saved. Please try again or contact support.';
+        }
     }
 }
 
@@ -66,6 +120,30 @@ $routines = $pdo->query("SELECT r.*, u.full_name AS collector_name FROM collecto
                             <div class="col-12">
                                 <label class="form-label">Pickup location</label>
                                 <input type="text" name="area_name" class="form-control" value="<?= htmlspecialchars($user['pickup_area'] ?: '') ?>" placeholder="e.g. Kisaasi, Wandegeya, Ntinda">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Number of <?= $unitType ?>s *</label>
+                                <input type="number" name="quantity" class="form-control" min="1" max="5000" value="<?= htmlspecialchars($_POST['quantity'] ?? '1') ?>" required>
+                                <div class="form-text">UGX <?= number_format($unitPrice) ?> per <?= $unitType ?> for <?= htmlspecialchars(str_replace('_', ' ', $billingCategory)) ?>.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">When do you want to pay? *</label>
+                                <select name="payment_timing" class="form-select" required>
+                                    <option value="before_collection">Before collection</option>
+                                    <option value="on_pickup">Upon pickup</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="annually">Annually</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Payment method *</label>
+                                <select name="payment_method" class="form-select" required>
+                                    <option value="airtel_money">Airtel Money</option>
+                                    <option value="mtn_momo">MTN MoMo</option>
+                                    <option value="visa">Visa</option>
+                                    <option value="mastercard">Mastercard</option>
+                                </select>
+                                <div class="form-text">This creates an invoice. Online checkout requires the organization’s payment gateway account to be configured.</div>
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Additional notes</label>

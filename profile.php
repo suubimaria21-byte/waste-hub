@@ -3,6 +3,8 @@ require_once __DIR__ . '/includes/auth.php';
 $user = getUser();
 
 $success = $error = '';
+$billingCategories = ['informal_household', 'apartment', 'commercial_entity', 'institution'];
+$billingCategory = $user['billing_category'] ?? 'informal_household';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
@@ -12,6 +14,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pickupArea = trim($_POST['pickup_area'] ?? $user['pickup_area'] ?? 'Kampala Central');
     $latitude = trim($_POST['latitude'] ?? ($user['latitude'] ?? ''));
     $longitude = trim($_POST['longitude'] ?? ($user['longitude'] ?? ''));
+    $billingCategory = $_POST['billing_category'] ?? ($user['billing_category'] ?? 'informal_household');
+    if (!in_array($billingCategory, $billingCategories, true)) {
+        $billingCategory = $user['billing_category'] ?? 'informal_household';
+    }
     $truckCount = max(0, (int)($_POST['truck_count'] ?? ($user['truck_count'] ?? 0)));
     $truckNumberPlates = trim($_POST['truck_number_plates'] ?? ($user['truck_number_plates'] ?? ''));
     $password = $_POST['password'] ?? '';
@@ -32,8 +38,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($password !== '' && strlen($password) < 6) {
                 $error = 'New password must be at least 6 characters long.';
             } else {
-                $sql = 'UPDATE users SET username = ?, email = ?, phone = ?, address = ?, pickup_area = ?, latitude = ?, longitude = ?';
+                $sql = 'UPDATE users SET username = ?, email = ?, phone = ?, address = ?, pickup_area = ?, latitude = ?, longitude = ?, gps_last_updated = NOW()';
                 $params = [$username, $email, $phone, $address, $pickupArea, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null];
+
+                if ($user['role'] === 'citizen') {
+                    $sql .= ', billing_category = ?';
+                    $params[] = $billingCategory;
+                }
 
                 if ($user['role'] === 'collector') {
                     $sql .= ', truck_count = ?, truck_number_plates = ?';
@@ -90,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php if ($success): ?><div class="alert alert-success"><?= htmlspecialchars($success) ?></div><?php endif; ?>
                     <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
-                    <form method="POST">
+                    <form method="POST" id="profileForm">
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Full name</label>
@@ -116,13 +127,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <label class="form-label">Phone number</label>
                                 <input type="text" name="phone" class="form-control" value="<?= htmlspecialchars($user['phone'] ?? '') ?>">
                             </div>
+                            <?php if ($user['role'] === 'citizen'): ?>
                             <div class="col-md-6">
-                                <label class="form-label">Latitude</label>
-                                <input type="number" step="0.000001" name="latitude" class="form-control" value="<?= htmlspecialchars((string)($user['latitude'] ?? '')) ?>">
+                                <label class="form-label">Household or organization type</label>
+                                <select name="billing_category" class="form-select">
+                                    <option value="informal_household" <?= ($billingCategory === 'informal_household') ? 'selected' : '' ?>>Informal household: UGX 1,000 per bag</option>
+                                    <option value="apartment" <?= ($billingCategory === 'apartment') ? 'selected' : '' ?>>Apartment: UGX 3,000 per bag</option>
+                                    <option value="commercial_entity" <?= ($billingCategory === 'commercial_entity') ? 'selected' : '' ?>>Commercial entity: UGX 8,000 per bag</option>
+                                    <option value="institution" <?= ($billingCategory === 'institution') ? 'selected' : '' ?>>Institution: UGX 90,000 per load</option>
+                                </select>
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Longitude</label>
-                                <input type="number" step="0.000001" name="longitude" class="form-control" value="<?= htmlspecialchars((string)($user['longitude'] ?? '')) ?>">
+                            <?php endif; ?>
+                            <div class="col-12">
+                                <button type="button" class="btn btn-outline-success" data-location-lookup>Find location on map</button>
+                                <p class="form-text" data-location-message><?= !empty($user['latitude']) && !empty($user['longitude']) ? 'A saved map point exists. Find location again after changing your area or address.' : 'Find an approximate Uganda map point from your area and address.' ?></p>
+                                <input type="hidden" name="latitude" value="<?= htmlspecialchars((string)($user['latitude'] ?? '')) ?>">
+                                <input type="hidden" name="longitude" value="<?= htmlspecialchars((string)($user['longitude'] ?? '')) ?>">
                             </div>
                             <?php if ($user['role'] === 'collector'): ?>
                             <div class="col-md-6">
@@ -154,7 +174,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </div>
 
+<script src="assets/js/location.js"></script>
 <script>
+setupUgandaLocationLookup('profileForm');
+
 function togglePassword(inputId) {
     const input = document.getElementById(inputId);
     const btn = input.parentElement.querySelector('button');

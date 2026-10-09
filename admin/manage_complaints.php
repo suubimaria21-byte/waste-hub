@@ -9,7 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $status = $_POST['status'];
     $collectorId = isset($_POST['collector_id']) && $_POST['collector_id'] !== '' ? (int)$_POST['collector_id'] : null;
     $notes = trim($_POST['admin_notes'] ?? '');
-    $stmt = $pdo->prepare("UPDATE complaints SET status=?, collector_id=?, admin_notes=?, assigned_at=NOW() WHERE id=?");
+    $stmt = $pdo->prepare("UPDATE complaints SET status=?, collector_id=?, truck_id=NULL, admin_notes=?, assigned_at=NOW() WHERE id=?");
     $stmt->execute([$status, $collectorId, $notes, $id]);
     $success = 'Complaint updated successfully!';
 }

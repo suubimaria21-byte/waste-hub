@@ -3,7 +3,7 @@ require_once '../includes/auth.php';
 requireRole('citizen');
 $user = getUser();
 
-$stmt = $pdo->prepare("SELECT p.*, u.full_name AS collector_name FROM pickups p LEFT JOIN users u ON p.collector_id = u.id WHERE p.citizen_id = ? ORDER BY p.created_at DESC LIMIT 5");
+$stmt = $pdo->prepare("SELECT p.*, u.full_name AS collector_name, pp.total_amount, pp.currency, pp.payment_timing, pp.payment_method, pp.status AS payment_status FROM pickups p LEFT JOIN users u ON p.collector_id = u.id LEFT JOIN pickup_payments pp ON pp.pickup_id = p.id WHERE p.citizen_id = ? ORDER BY p.created_at DESC LIMIT 5");
 $stmt->execute([$_SESSION['user_id']]);
 $pickups = $stmt->fetchAll();
 
@@ -37,6 +37,7 @@ $complaints = $stmt->fetchAll();
         <div class="col-md-2 sidebar p-0">
             <a href="dashboard.php" class="active">Dashboard</a>
             <a href="request_pickup.php">Request Pickup</a>
+            <a href="payments.php">Invoices and payments</a>
             <a href="submit_complaint.php">Submit Complaint</a>
             <a href="../profile.php">Edit Profile</a>
         </div>
@@ -75,8 +76,8 @@ $complaints = $stmt->fetchAll();
                     <div class="card stat-card p-3">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <div class="text-muted small">Pickup location</div>
-                                <h5 class="mb-0"><?= htmlspecialchars($user['pickup_area'] ?: 'Not set yet') ?></h5>
+                                <div class="text-muted small">Billing category</div>
+                                <h5 class="mb-0 text-capitalize"><?= htmlspecialchars(str_replace('_', ' ', $user['billing_category'] ?? 'informal household')) ?></h5>
                             </div>
                             <div class="stat-icon text-info">🧹</div>
                         </div>
@@ -97,7 +98,11 @@ $complaints = $stmt->fetchAll();
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <div>
                                                 <strong><?= date('d M Y', strtotime($p['requested_date'])) ?></strong><br>
-                                                <small class="text-muted"><?= htmlspecialchars($p['collector_name'] ?: 'Awaiting assignment') ?></small>
+                                                <small class="text-muted d-block"><?= htmlspecialchars($p['collector_name'] ?: 'Awaiting assignment') ?></small>
+                                                <?php if ($p['total_amount'] !== null): ?>
+                                                    <?php $paymentLabel = $p['payment_status'] === 'demo_paid' ? 'Paid (demo)' : ucfirst(str_replace('_', ' ', $p['payment_status'])); ?>
+                                                    <small class="text-muted d-block">Invoice: <?= htmlspecialchars($p['currency']) ?> <?= number_format((float)$p['total_amount']) ?> · <?= htmlspecialchars($paymentLabel) ?></small>
+                                                <?php endif; ?>
                                             </div>
                                             <span class="badge bg-<?= $p['status']==='completed'?'success':($p['status']==='pending'?'warning':'info') ?>"><?= ucfirst($p['status']) ?></span>
                                         </li>

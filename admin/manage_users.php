@@ -14,6 +14,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $phone = trim($_POST['phone'] ?? '');
     $address = trim($_POST['address'] ?? '');
     $pickupArea = trim($_POST['pickup_area'] ?? 'Kampala Central');
+    $billingCategories = ['informal_household', 'apartment', 'commercial_entity', 'institution'];
+    $billingCategory = $_POST['billing_category'] ?? 'informal_household';
+    if (!in_array($billingCategory, $billingCategories, true)) {
+        $billingCategory = 'informal_household';
+    }
     $contractorName = trim($_POST['contractor_name'] ?? '');
     $latitude = trim($_POST['latitude'] ?? '');
     $longitude = trim($_POST['longitude'] ?? '');
@@ -44,11 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($id > 0) {
                 if (!empty($password)) {
                     $hashed = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare("UPDATE users SET full_name=?, username=?, email=?, role=?, phone=?, address=?, pickup_area=?, contractor_name=?, latitude=?, longitude=?, truck_count=?, truck_number_plates=?, password=? WHERE id=?");
-                    $stmt->execute([$full_name, $username, $email, $role, $phone, $address, $pickupArea, $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $truckCount, $truckNumberPlates, $hashed, $id]);
+                    $stmt = $pdo->prepare("UPDATE users SET full_name=?, username=?, email=?, role=?, phone=?, address=?, billing_category=?, pickup_area=?, contractor_name=?, latitude=?, longitude=?, truck_count=?, truck_number_plates=?, password=? WHERE id=?");
+                    $stmt->execute([$full_name, $username, $email, $role, $phone, $address, $billingCategory, $pickupArea, $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $truckCount, $truckNumberPlates, $hashed, $id]);
                 } else {
-                    $stmt = $pdo->prepare("UPDATE users SET full_name=?, username=?, email=?, role=?, phone=?, address=?, pickup_area=?, contractor_name=?, latitude=?, longitude=?, truck_count=?, truck_number_plates=? WHERE id=?");
-                    $stmt->execute([$full_name, $username, $email, $role, $phone, $address, $pickupArea, $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $truckCount, $truckNumberPlates, $id]);
+                    $stmt = $pdo->prepare("UPDATE users SET full_name=?, username=?, email=?, role=?, phone=?, address=?, billing_category=?, pickup_area=?, contractor_name=?, latitude=?, longitude=?, truck_count=?, truck_number_plates=? WHERE id=?");
+                    $stmt->execute([$full_name, $username, $email, $role, $phone, $address, $billingCategory, $pickupArea, $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $truckCount, $truckNumberPlates, $id]);
                 }
                 $success = 'User updated successfully!';
             } else {
@@ -58,8 +63,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $hashed = password_hash($password, PASSWORD_DEFAULT);
                     $pdo->beginTransaction();
                     $approvalStatus = $role === 'collector' ? 'pending' : 'approved';
-                    $stmt = $pdo->prepare("INSERT INTO users (full_name, username, email, password, role, approval_status, phone, address, pickup_area, contractor_name, latitude, longitude, truck_count, truck_number_plates) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                    $stmt->execute([$full_name, $username, $email, $hashed, $role, $approvalStatus, $phone, $address, $pickupArea, $role === 'collector' ? ($contractorName ?: $companyName) : $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $role === 'collector' ? $truckCount : 0, $role === 'collector' ? $truckNumberPlates : null]);
+                    $stmt = $pdo->prepare("INSERT INTO users (full_name, username, email, password, role, approval_status, phone, address, billing_category, pickup_area, contractor_name, latitude, longitude, truck_count, truck_number_plates) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                    $stmt->execute([$full_name, $username, $email, $hashed, $role, $approvalStatus, $phone, $address, $billingCategory, $pickupArea, $role === 'collector' ? ($contractorName ?: $companyName) : $contractorName, $latitude !== '' ? (float)$latitude : null, $longitude !== '' ? (float)$longitude : null, $role === 'collector' ? $truckCount : 0, $role === 'collector' ? $truckNumberPlates : null]);
                     $createdUserId = (int)$pdo->lastInsertId();
                     if ($role === 'collector') {
                         $application = $pdo->prepare('INSERT INTO collector_applications (user_id, company_name, trading_license, nema_license, ursb_registered, operational_areas, has_truck, truck_count, truck_number_plates, office_address, disposal_plan, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
@@ -199,6 +204,15 @@ $users = $pdo->query("SELECT * FROM users ORDER BY role, full_name")->fetchAll()
                         <label class="form-label">Service area</label>
                         <input type="text" name="pickup_area" id="pickup_area" class="form-control" placeholder="e.g. Nakawa, Wandegeya, Entebbe">
                     </div>
+                    <div class="col-md-6 d-none" id="userBillingFields">
+                        <label class="form-label">Citizen billing class</label>
+                        <select name="billing_category" id="billing_category" class="form-select">
+                            <option value="informal_household">Informal household: UGX 1,000 per bag</option>
+                            <option value="apartment">Apartment: UGX 3,000 per bag</option>
+                            <option value="commercial_entity">Commercial entity: UGX 8,000 per bag</option>
+                            <option value="institution">Institution: UGX 90,000 per load</option>
+                        </select>
+                    </div>
                     <div class="col-md-6">
                         <label class="form-label">Latitude</label>
                         <input type="number" step="0.000001" name="latitude" id="latitude" class="form-control" placeholder="0.3163">
@@ -282,9 +296,11 @@ $users = $pdo->query("SELECT * FROM users ORDER BY role, full_name")->fetchAll()
 <script>
 const roleSelect = document.getElementById('role');
 const collectorApplicationFields = document.getElementById('collectorApplicationFields');
+const userBillingFields = document.getElementById('userBillingFields');
 function syncCollectorFields() {
     const isCollector = roleSelect.value === 'collector' && !document.getElementById('userId').value;
     collectorApplicationFields.classList.toggle('d-none', !isCollector);
+    userBillingFields.classList.toggle('d-none', roleSelect.value !== 'citizen');
     collectorApplicationFields.querySelectorAll('input, select, textarea').forEach((field) => {
         field.required = isCollector && ['company_name', 'trading_license', 'nema_license', 'operational_areas', 'office_address', 'disposal_plan'].includes(field.name);
     });
@@ -301,6 +317,7 @@ function resetForm() {
     document.getElementById('role').value = 'citizen';
     document.getElementById('phone').value = '';
     document.getElementById('pickup_area').value = '';
+    document.getElementById('billing_category').value = 'informal_household';
     document.getElementById('latitude').value = '';
     document.getElementById('longitude').value = '';
     document.getElementById('truck_count').value = '0';
@@ -321,6 +338,7 @@ function editUser(u) {
     document.getElementById('role').value = u.role || 'citizen';
     document.getElementById('phone').value = u.phone || '';
     document.getElementById('pickup_area').value = u.pickup_area || '';
+    document.getElementById('billing_category').value = u.billing_category || 'informal_household';
     document.getElementById('latitude').value = u.latitude || '';
     document.getElementById('longitude').value = u.longitude || '';
     document.getElementById('truck_count').value = u.truck_count || '0';

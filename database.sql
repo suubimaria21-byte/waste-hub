@@ -11,6 +11,7 @@ CREATE TABLE users (
     approval_status ENUM('pending', 'approved', 'rejected') DEFAULT 'approved',
     phone VARCHAR(20),
     address TEXT,
+    billing_category ENUM('informal_household', 'apartment', 'commercial_entity', 'institution') NOT NULL DEFAULT 'informal_household',
     pickup_area VARCHAR(100) DEFAULT 'Kampala Central',
     latitude DECIMAL(10,8) NULL,
     longitude DECIMAL(11,8) NULL,
@@ -19,6 +20,16 @@ CREATE TABLE users (
     truck_count INT DEFAULT 0,
     truck_number_plates TEXT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE collector_trucks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    collector_id INT NOT NULL,
+    plate_number VARCHAR(40) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_collector_plate (collector_id, plate_number),
+    FOREIGN KEY (collector_id) REFERENCES users(id)
 );
 
 CREATE TABLE pickups (
@@ -31,12 +42,37 @@ CREATE TABLE pickups (
     pickup_type ENUM('routine','special') DEFAULT 'special',
     routine_id INT NULL,
     collector_id INT NULL,
+    truck_id INT NULL,
     assigned_at DATETIME NULL,
     completed_at DATETIME NULL,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (citizen_id) REFERENCES users(id),
-    FOREIGN KEY (collector_id) REFERENCES users(id)
+    FOREIGN KEY (collector_id) REFERENCES users(id),
+    FOREIGN KEY (truck_id) REFERENCES collector_trucks(id) ON DELETE SET NULL
+);
+
+CREATE TABLE pickup_payments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    pickup_id INT NOT NULL UNIQUE,
+    citizen_id INT NOT NULL,
+    billing_category ENUM('informal_household', 'apartment', 'commercial_entity', 'institution') NOT NULL,
+    quantity INT UNSIGNED NOT NULL,
+    unit_type ENUM('bag', 'load') NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    total_amount DECIMAL(12,2) NOT NULL,
+    currency CHAR(3) NOT NULL DEFAULT 'UGX',
+    payment_timing ENUM('before_collection', 'on_pickup', 'monthly', 'annually') NOT NULL,
+    payment_method ENUM('airtel_money', 'mtn_momo', 'visa', 'mastercard') NOT NULL,
+    status ENUM('awaiting_payment', 'due_on_pickup', 'scheduled', 'paid', 'demo_paid', 'failed') NOT NULL DEFAULT 'awaiting_payment',
+    due_at DATE NULL,
+    external_reference VARCHAR(120) NULL,
+    paid_at DATETIME NULL,
+    demo_reference VARCHAR(120) NULL,
+    demo_paid_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (pickup_id) REFERENCES pickups(id),
+    FOREIGN KEY (citizen_id) REFERENCES users(id)
 );
 
 CREATE TABLE complaints (
@@ -45,6 +81,7 @@ CREATE TABLE complaints (
     collector_id INT NULL,
     title VARCHAR(150) NOT NULL,
     description TEXT NOT NULL,
+    truck_id INT NULL,
     location VARCHAR(255),
     area_name VARCHAR(100) DEFAULT 'Kampala Central',
     photo VARCHAR(255) NULL,
@@ -54,7 +91,8 @@ CREATE TABLE complaints (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (citizen_id) REFERENCES users(id),
-    FOREIGN KEY (collector_id) REFERENCES users(id)
+    FOREIGN KEY (collector_id) REFERENCES users(id),
+    FOREIGN KEY (truck_id) REFERENCES collector_trucks(id) ON DELETE SET NULL
 );
 
 CREATE TABLE collector_applications (

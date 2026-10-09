@@ -2,6 +2,9 @@
 require_once '../includes/auth.php';
 requireRole('collector');
 $user = getUser();
+$success = '';
+
+syncCollectorTrucks($pdo, (int)$user['id'], (string)($user['truck_number_plates'] ?? ''));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['truck_number_plates'])) {
     $plates = trim($_POST['truck_number_plates'] ?? '');
@@ -9,13 +12,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['truck_number_plates']
     $stmt = $pdo->prepare('UPDATE users SET truck_number_plates = ?, truck_count = ? WHERE id = ?');
     $stmt->execute([$plates, $count, $_SESSION['user_id']]);
     $user = getUser();
+    syncCollectorTrucks($pdo, (int)$user['id'], $plates);
+    $success = 'Truck list saved.';
 }
 
-$stmt = $pdo->prepare("SELECT p.*, u.full_name, u.phone, u.address, u.pickup_area FROM pickups p JOIN users u ON p.citizen_id = u.id WHERE p.collector_id = ? AND p.status IN ('assigned','in_progress') ORDER BY p.requested_date ASC");
+$trucksStmt = $pdo->prepare('SELECT id, plate_number FROM collector_trucks WHERE collector_id = ? AND is_active = 1 ORDER BY plate_number');
+$trucksStmt->execute([$user['id']]);
+$trucks = $trucksStmt->fetchAll(PDO::FETCH_ASSOC);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_pickup_truck'])) {
+    $pickupId = (int)($_POST['pickup_id'] ?? 0);
+    $truckId = (int)($_POST['truck_id'] ?? 0);
+    $validTruck = $pdo->prepare('SELECT id FROM collector_trucks WHERE id = ? AND collector_id = ? AND is_active = 1');
+    $validTruck->execute([$truckId, $user['id']]);
+    if ($validTruck->fetchColumn()) {
+        $stmt = $pdo->prepare("UPDATE pickups SET truck_id = ? WHERE id = ? AND collector_id = ? AND status IN ('assigned', 'in_progress')");
+        $stmt->execute([$truckId, $pickupId, $user['id']]);
+        $success = $stmt->rowCount() ? 'Truck assigned to pickup.' : 'Pickup could not be updated.';
+    } else {
+        $success = 'Choose one of your active trucks.';
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['complete_pickup'])) {
+    $stmt = $pdo->prepare("UPDATE pickups SET status = 'completed', completed_at = NOW() WHERE id = ? AND collector_id = ? AND truck_id IS NOT NULL AND status IN ('assigned', 'in_progress')");
+    $stmt->execute([(int)$_POST['pickup_id'], $user['id']]);
+    $success = $stmt->rowCount() ? 'Pickup marked completed.' : 'Assign a truck before completing this pickup.';
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_complaint_truck'])) {
+    $truckId = (int)($_POST['truck_id'] ?? 0);
+    $validTruck = $pdo->prepare('SELECT id FROM collector_trucks WHERE id = ? AND collector_id = ? AND is_active = 1');
+    $validTruck->execute([$truckId, $user['id']]);
+    if ($validTruck->fetchColumn()) {
+        $stmt = $pdo->prepare("UPDATE complaints SET truck_id = ? WHERE id = ? AND collector_id = ? AND status != 'resolved'");
+        $stmt->execute([$truckId, (int)$_POST['complaint_id'], $user['id']]);
+        $success = $stmt->rowCount() ? 'Truck assigned to complaint.' : 'Complaint could not be updated.';
+    } else {
+        $success = 'Choose one of your active trucks.';
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resolve_complaint'])) {
+    $stmt = $pdo->prepare("UPDATE complaints SET status = 'resolved', updated_at = NOW() WHERE id = ? AND collector_id = ? AND truck_id IS NOT NULL AND status != 'resolved'");
+    $stmt->execute([(int)$_POST['complaint_id'], $user['id']]);
+    $success = $stmt->rowCount() ? 'Complaint marked resolved.' : 'Assign a truck before resolving this complaint.';
+}
+
+$stmt = $pdo->prepare("SELECT p.*, u.full_name, u.phone, u.address, u.pickup_area, t.plate_number FROM pickups p JOIN users u ON p.citizen_id = u.id LEFT JOIN collector_trucks t ON p.truck_id = t.id WHERE p.collector_id = ? AND p.status IN ('assigned','in_progress') ORDER BY p.requested_date ASC");
 $stmt->execute([$_SESSION['user_id']]);
 $assigned = $stmt->fetchAll();
 
-$complaints = $pdo->query("SELECT c.*, u.full_name AS citizen_name FROM complaints c JOIN users u ON c.citizen_id = u.id WHERE c.collector_id = {$_SESSION['user_id']} ORDER BY c.created_at DESC")->fetchAll();
+$stmt = $pdo->prepare("SELECT c.*, u.full_name AS citizen_name, t.plate_number FROM complaints c JOIN users u ON c.citizen_id = u.id LEFT JOIN collector_trucks t ON c.truck_id = t.id WHERE c.collector_id = ? ORDER BY c.created_at DESC");
+$stmt->execute([$user['id']]);
+$complaints = $stmt->fetchAll();
 
 $meetings = $pdo->prepare("SELECT * FROM collector_meetings WHERE audience = 'all' OR FIND_IN_SET(?, collector_ids) > 0 ORDER BY created_at DESC");
 $meetings->execute([$_SESSION['user_id']]);
@@ -23,21 +73,6 @@ $meetings = $meetings->fetchAll();
 
 $routines = $pdo->query("SELECT * FROM collector_routines WHERE collector_id = {$_SESSION['user_id']} AND is_active = 1 ORDER BY FIELD(day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time")->fetchAll();
 
-if (isset($_GET['complete'])) {
-    $id = (int)$_GET['complete'];
-    $stmt = $pdo->prepare("UPDATE pickups SET status='completed', completed_at=NOW() WHERE id=? AND collector_id=?");
-    $stmt->execute([$id, $_SESSION['user_id']]);
-    header('Location: dashboard.php');
-    exit;
-}
-
-if (isset($_GET['resolveComplaint'])) {
-    $id = (int)$_GET['resolveComplaint'];
-    $stmt = $pdo->prepare("UPDATE complaints SET status='resolved', updated_at=NOW() WHERE id=? AND collector_id=?");
-    $stmt->execute([$id, $_SESSION['user_id']]);
-    header('Location: dashboard.php');
-    exit;
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -61,6 +96,8 @@ if (isset($_GET['resolveComplaint'])) {
 
 <div class="container py-4">
     <h2 class="mb-4">Operations overview</h2>
+    <?php if ($success): ?><div class="alert alert-info"><?= htmlspecialchars($success) ?></div><?php endif; ?>
+    <div class="mb-4"><a href="../reports.php" class="btn btn-outline-success">Truck work reports</a></div>
 
     <?php if (!empty($meetings)): ?>
         <div class="card border-warning mb-4">
@@ -118,10 +155,11 @@ if (isset($_GET['resolveComplaint'])) {
             <div class="card h-100">
                 <div class="card-header bg-success text-white">Truck details</div>
                 <div class="card-body">
-                    <p><strong>Truck count:</strong> <?= (int)($user['truck_count'] ?? 0) ?></p>
-                    <p><strong>Number plates:</strong></p>
-                    <?php if (!empty($user['truck_number_plates'])): ?>
-                        <div class="bg-light p-3 rounded"><?= nl2br(htmlspecialchars($user['truck_number_plates'])) ?></div>
+                    <?php if (!empty($trucks)): ?>
+                        <p><strong>Registered trucks:</strong> <?= count($trucks) ?></p>
+                        <ul class="mb-0">
+                            <?php foreach ($trucks as $truck): ?><li><?= htmlspecialchars($truck['plate_number']) ?></li><?php endforeach; ?>
+                        </ul>
                     <?php else: ?>
                         <p class="text-muted mb-0">No trucks recorded yet.</p>
                     <?php endif; ?>
@@ -197,6 +235,7 @@ if (isset($_GET['resolveComplaint'])) {
                                 <th>Phone</th>
                                 <th>Area</th>
                                 <th>Address</th>
+                                <th>Truck</th>
                                 <th>Status</th>
                                 <th>Action</th>
                             </tr>
@@ -209,9 +248,23 @@ if (isset($_GET['resolveComplaint'])) {
                                     <td><?= htmlspecialchars($p['phone']) ?></td>
                                     <td><?= htmlspecialchars($p['pickup_area'] ?: 'Kampala Central') ?></td>
                                     <td><?= htmlspecialchars($p['address']) ?></td>
+                                    <td><?= htmlspecialchars($p['plate_number'] ?: 'Not assigned') ?></td>
                                     <td><span class="badge bg-info"><?= ucfirst($p['status']) ?></span></td>
                                     <td>
-                                        <a href="?complete=<?= $p['id'] ?>" class="btn btn-sm btn-success" onclick="return confirm('Mark this pickup as completed?')">Mark completed</a>
+                                        <form method="POST" class="d-flex gap-2 mb-2">
+                                            <input type="hidden" name="pickup_id" value="<?= (int)$p['id'] ?>">
+                                            <select name="truck_id" class="form-select form-select-sm" required aria-label="Truck for pickup">
+                                                <option value="">Choose truck</option>
+                                                <?php foreach ($trucks as $truck): ?>
+                                                    <option value="<?= (int)$truck['id'] ?>" <?= (int)$p['truck_id'] === (int)$truck['id'] ? 'selected' : '' ?>><?= htmlspecialchars($truck['plate_number']) ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <button type="submit" name="assign_pickup_truck" class="btn btn-sm btn-outline-success">Assign</button>
+                                        </form>
+                                        <form method="POST">
+                                            <input type="hidden" name="pickup_id" value="<?= (int)$p['id'] ?>">
+                                            <button type="submit" name="complete_pickup" class="btn btn-sm btn-success" <?= empty($p['truck_id']) ? 'disabled' : '' ?>>Mark completed</button>
+                                        </form>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -235,6 +288,7 @@ if (isset($_GET['resolveComplaint'])) {
                                 <th>Citizen</th>
                                 <th>Issue</th>
                                 <th>Area</th>
+                                <th>Truck</th>
                                 <th>Status</th>
                                 <th>Action</th>
                             </tr>
@@ -245,12 +299,26 @@ if (isset($_GET['resolveComplaint'])) {
                                     <td><?= htmlspecialchars($c['citizen_name']) ?></td>
                                     <td><?= htmlspecialchars($c['title']) ?></td>
                                     <td><?= htmlspecialchars($c['area_name'] ?: 'Kampala Central') ?></td>
+                                    <td><?= htmlspecialchars($c['plate_number'] ?: 'Not assigned') ?></td>
                                     <td>
                                         <span class="badge bg-<?= $c['status']==='resolved' ? 'success' : ($c['status']==='in_progress' ? 'warning' : 'danger') ?>"><?= ucfirst(str_replace('_',' ',$c['status'])) ?></span>
                                     </td>
                                     <td>
                                         <?php if ($c['status'] !== 'resolved'): ?>
-                                            <a href="?resolveComplaint=<?= $c['id'] ?>" class="btn btn-sm btn-outline-success" onclick="return confirm('Mark this complaint as resolved?')">Resolve</a>
+                                            <form method="POST" class="d-flex gap-2 mb-2">
+                                                <input type="hidden" name="complaint_id" value="<?= (int)$c['id'] ?>">
+                                                <select name="truck_id" class="form-select form-select-sm" required aria-label="Truck for complaint">
+                                                    <option value="">Choose truck</option>
+                                                    <?php foreach ($trucks as $truck): ?>
+                                                        <option value="<?= (int)$truck['id'] ?>" <?= (int)$c['truck_id'] === (int)$truck['id'] ? 'selected' : '' ?>><?= htmlspecialchars($truck['plate_number']) ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <button type="submit" name="assign_complaint_truck" class="btn btn-sm btn-outline-success">Assign</button>
+                                            </form>
+                                            <form method="POST">
+                                                <input type="hidden" name="complaint_id" value="<?= (int)$c['id'] ?>">
+                                                <button type="submit" name="resolve_complaint" class="btn btn-sm btn-outline-success" <?= empty($c['truck_id']) ? 'disabled' : '' ?>>Resolve</button>
+                                            </form>
                                         <?php else: ?>
                                             <span class="text-muted">Completed</span>
                                         <?php endif; ?>

@@ -49,6 +49,7 @@ $mappedCitizens = $pdo->query("SELECT full_name, pickup_area, latitude, longitud
             <a href="manage_users.php">Manage Users</a>
             <a href="manage_collector_applications.php">Collector Requests</a>
             <a href="manage_routines.php">Routine Calendar</a>
+            <a href="../reports.php">Truck Reports</a>
             <a href="manage_meetings.php">Upcoming events</a>
             <a href="../profile.php">Edit Profile</a>
         </div>
@@ -247,8 +248,9 @@ $mappedCitizens = $pdo->query("SELECT full_name, pickup_area, latitude, longitud
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
-    const map = L.map('citizenMap').setView([1.3733, 32.2903], 7);
-    map.fitBounds([[-1.5, 29.5], [4.2, 35.1]]);
+    const ugandaBounds = L.latLngBounds([-1.6, 29.5], [4.3, 35.1]);
+    const map = L.map('citizenMap', { maxBounds: ugandaBounds, maxBoundsViscosity: 1, minZoom: 6 }).setView([1.3733, 32.2903], 7);
+    map.fitBounds(ugandaBounds);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors'
@@ -264,7 +266,7 @@ $mappedCitizens = $pdo->query("SELECT full_name, pickup_area, latitude, longitud
         );
         citizenBounds.push(position);
     });
-    if (citizenBounds.length) map.fitBounds(citizenBounds, { padding: [24, 24], maxZoom: 13 });
+    if (citizenBounds.length) map.fitBounds(L.latLngBounds(citizenBounds).pad(0.15), { padding: [24, 24], maxZoom: 13 });
 
     function escapeHtml(value) {
         return String(value).replace(/[&<>"']/g, (character) => ({

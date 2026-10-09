@@ -41,13 +41,32 @@ function getUser(): array
     return $user;
 }
 
-function autoAssignCollector(PDO $pdo, int $citizenId, string $areaName, ?float $latitude = null, ?float $longitude = null): ?int
+function syncCollectorTrucks(PDO $pdo, int $collectorId, string $plateList): void
+{
+    $plates = preg_split('/[\r\n,;]+/', $plateList) ?: [];
+    $stmt = $pdo->prepare('INSERT INTO collector_trucks (collector_id, plate_number) VALUES (?, ?) ON DUPLICATE KEY UPDATE is_active = 1');
+    foreach ($plates as $plate) {
+        $plate = strtoupper(trim($plate));
+        if ($plate !== '') {
+            $stmt->execute([$collectorId, substr($plate, 0, 40)]);
+        }
+    }
+}
+
+function autoAssignCollector(PDO $pdo, int $citizenId, string $areaName, ?float $latitude = null, ?float $longitude = null, ?string $dayOfWeek = null): ?int
 {
     $areaName = trim($areaName);
 
     if ($areaName !== '') {
-        $stmt = $pdo->prepare("SELECT collector_id FROM collector_routines WHERE is_active = 1 AND area_name = ? ORDER BY start_time, collector_id LIMIT 1");
-        $stmt->execute([$areaName]);
+        $routineSql = "SELECT collector_id FROM collector_routines WHERE is_active = 1 AND LOWER(TRIM(area_name)) = LOWER(?)";
+        $routineParams = [$areaName];
+        if ($dayOfWeek !== null) {
+            $routineSql .= ' AND day_of_week = ?';
+            $routineParams[] = $dayOfWeek;
+        }
+        $routineSql .= ' ORDER BY start_time, collector_id LIMIT 1';
+        $stmt = $pdo->prepare($routineSql);
+        $stmt->execute($routineParams);
         $routineCollectorId = $stmt->fetchColumn();
         if ($routineCollectorId !== false) {
             $approved = $pdo->prepare("SELECT id FROM users WHERE id = ? AND role = 'collector' AND approval_status = 'approved'");

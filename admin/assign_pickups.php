@@ -2,7 +2,7 @@
 require_once '../includes/auth.php';
 requireRole('admin');
 
-$unassigned = $pdo->query("SELECT p.id, p.citizen_id, p.area_name, u.latitude, u.longitude FROM pickups p JOIN users u ON u.id = p.citizen_id WHERE p.status = 'pending' AND p.collector_id IS NULL ORDER BY p.created_at ASC")->fetchAll(PDO::FETCH_ASSOC);
+$unassigned = $pdo->query("SELECT p.id, p.citizen_id, p.area_name, p.requested_date, u.latitude, u.longitude FROM pickups p JOIN users u ON u.id = p.citizen_id WHERE p.status = 'pending' AND p.collector_id IS NULL ORDER BY p.created_at ASC")->fetchAll(PDO::FETCH_ASSOC);
 $assignedCount = 0;
 foreach ($unassigned as $pickup) {
     $collectorId = autoAssignCollector(
@@ -10,11 +10,16 @@ foreach ($unassigned as $pickup) {
         (int)$pickup['citizen_id'],
         (string)($pickup['area_name'] ?: ''),
         $pickup['latitude'] !== null ? (float)$pickup['latitude'] : null,
-        $pickup['longitude'] !== null ? (float)$pickup['longitude'] : null
+        $pickup['longitude'] !== null ? (float)$pickup['longitude'] : null,
+        date('l', strtotime($pickup['requested_date']))
     );
     if ($collectorId !== null) {
-        $stmt = $pdo->prepare("UPDATE pickups SET collector_id = ?, status = 'assigned', assigned_at = NOW() WHERE id = ? AND status = 'pending' AND collector_id IS NULL");
-        $stmt->execute([$collectorId, (int)$pickup['id']]);
+        $routineStmt = $pdo->prepare("SELECT id FROM collector_routines WHERE collector_id = ? AND is_active = 1 AND day_of_week = ? AND LOWER(TRIM(area_name)) = LOWER(?) ORDER BY start_time LIMIT 1");
+        $routineStmt->execute([$collectorId, date('l', strtotime($pickup['requested_date'])), (string)$pickup['area_name']]);
+        $routineId = $routineStmt->fetchColumn();
+        $routineId = $routineId !== false ? (int)$routineId : null;
+        $stmt = $pdo->prepare("UPDATE pickups SET collector_id = ?, routine_id = ?, status = 'assigned', assigned_at = NOW() WHERE id = ? AND status = 'pending' AND collector_id IS NULL");
+        $stmt->execute([$collectorId, $routineId, (int)$pickup['id']]);
         $assignedCount += $stmt->rowCount();
     }
 }

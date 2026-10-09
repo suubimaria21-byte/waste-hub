@@ -16,6 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $phone = trim($_POST['phone'] ?? '');
     $address = trim($_POST['address'] ?? '');
     $pickupArea = trim($_POST['pickup_area'] ?? '');
+    $billingCategory = $_POST['billing_category'] ?? 'informal_household';
+    $billingCategories = ['informal_household', 'apartment', 'commercial_entity', 'institution'];
+    if (!in_array($billingCategory, $billingCategories, true)) {
+        $billingCategory = 'informal_household';
+    }
     $latitude = trim((string)($_POST['latitude'] ?? ''));
     $longitude = trim((string)($_POST['longitude'] ?? ''));
     $role = $selectedRole;
@@ -53,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $hashed = password_hash($password, PASSWORD_DEFAULT);
                 $stmt = $pdo->prepare(
-                    "INSERT INTO users (username, email, password, full_name, role, approval_status, phone, address, pickup_area, latitude, longitude, gps_last_updated, truck_count, truck_number_plates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)"
+                    "INSERT INTO users (username, email, password, full_name, role, approval_status, phone, address, billing_category, pickup_area, latitude, longitude, gps_last_updated, truck_count, truck_number_plates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)"
                 );
                 $stmt->execute([
                     $username,
@@ -64,6 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $approvalStatus,
                     $phone,
                     $address,
+                    $role === 'citizen' ? $billingCategory : 'informal_household',
                     $pickupArea,
                     $latitude !== '' ? (float)$latitude : null,
                     $longitude !== '' ? (float)$longitude : null,
@@ -165,6 +171,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <label class="form-label">Phone</label>
                                 <input type="text" name="phone" class="form-control" value="<?= htmlspecialchars($_POST['phone'] ?? '') ?>">
                             </div>
+                            <?php if ($selectedRole === 'citizen'): ?>
+                                <div class="col-md-6">
+                                    <label class="form-label">Household or organization type *</label>
+                                    <select name="billing_category" class="form-select" required>
+                                        <option value="informal_household" <?= (($_POST['billing_category'] ?? 'informal_household') === 'informal_household') ? 'selected' : '' ?>>Informal household: UGX 1,000 per bag</option>
+                                        <option value="apartment" <?= (($_POST['billing_category'] ?? '') === 'apartment') ? 'selected' : '' ?>>Apartment: UGX 3,000 per bag</option>
+                                        <option value="commercial_entity" <?= (($_POST['billing_category'] ?? '') === 'commercial_entity') ? 'selected' : '' ?>>Commercial entity: UGX 8,000 per bag</option>
+                                        <option value="institution" <?= (($_POST['billing_category'] ?? '') === 'institution') ? 'selected' : '' ?>>Institution: UGX 90,000 per load</option>
+                                    </select>
+                                </div>
+                            <?php endif; ?>
                             <?php if ($selectedRole === 'collector'): ?>
                                 <div class="col-md-6">
                                     <label class="form-label">Desired operational area(s) *</label>
@@ -229,14 +246,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <textarea name="disposal_plan" class="form-control" rows="3"><?= htmlspecialchars($_POST['disposal_plan'] ?? '') ?></textarea>
                                 </div>
                             <?php endif; ?>
-                            <div class="col-md-6">
-                                <label class="form-label">Latitude</label>
-                                <input type="number" step="0.000001" name="latitude" class="form-control" value="<?= htmlspecialchars($_POST['latitude'] ?? '') ?>" placeholder="0.3163">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Longitude</label>
-                                <input type="number" step="0.000001" name="longitude" class="form-control" value="<?= htmlspecialchars($_POST['longitude'] ?? '') ?>" placeholder="32.5822">
-                            </div>
+                            <?php if ($selectedRole === 'citizen'): ?>
+                                <div class="col-12">
+                                    <button type="button" class="btn btn-outline-success" data-location-lookup>Find my location</button>
+                                    <p class="form-text" data-location-message>Enter your area or address above, then find its approximate point on the Uganda map. The search is sent to OpenStreetMap.</p>
+                                    <input type="hidden" name="latitude" value="<?= htmlspecialchars($_POST['latitude'] ?? '') ?>">
+                                    <input type="hidden" name="longitude" value="<?= htmlspecialchars($_POST['longitude'] ?? '') ?>">
+                                </div>
+                            <?php else: ?>
+                                <div class="col-md-6">
+                                    <label class="form-label">Latitude</label>
+                                    <input type="number" step="0.000001" name="latitude" class="form-control" value="<?= htmlspecialchars($_POST['latitude'] ?? '') ?>" placeholder="0.3163">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Longitude</label>
+                                    <input type="number" step="0.000001" name="longitude" class="form-control" value="<?= htmlspecialchars($_POST['longitude'] ?? '') ?>" placeholder="32.5822">
+                                </div>
+                            <?php endif; ?>
                         </div>
                         <button type="submit" class="btn btn-success w-100 mt-4">Register</button>
                     </form>
@@ -246,6 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
 </div>
+<script src="../../assets/js/location.js"></script>
 <script>
 function togglePassword(inputId) {
     const input = document.getElementById(inputId);
@@ -260,6 +287,9 @@ function togglePassword(inputId) {
 }
 
 const form = document.getElementById('registerForm');
+<?php if ($selectedRole === 'citizen'): ?>
+setupUgandaLocationLookup('registerForm');
+<?php endif; ?>
 if (form) {
     form.addEventListener('submit', function (event) {
         const email = form.querySelector('input[name="email"]');

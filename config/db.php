@@ -100,11 +100,54 @@ function ensureDatabaseSchema(PDO $pdo): void
     if (!columnExists($pdo, 'users', 'gps_last_updated')) {
         $pdo->exec('ALTER TABLE users ADD COLUMN gps_last_updated DATETIME NULL AFTER longitude');
     }
+    if (!columnExists($pdo, 'users', 'billing_category')) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN billing_category ENUM('informal_household','apartment','commercial_entity','institution') NOT NULL DEFAULT 'informal_household' AFTER address");
+    }
+    $pdo->exec("CREATE TABLE IF NOT EXISTS collector_trucks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        collector_id INT NOT NULL,
+        plate_number VARCHAR(40) NOT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_collector_plate (collector_id, plate_number),
+        FOREIGN KEY (collector_id) REFERENCES users(id)
+    )");
     if (!columnExists($pdo, 'pickups', 'pickup_type')) {
         $pdo->exec("ALTER TABLE pickups ADD COLUMN pickup_type ENUM('routine','special') DEFAULT 'special' AFTER status");
     }
     if (!columnExists($pdo, 'pickups', 'routine_id')) {
         $pdo->exec('ALTER TABLE pickups ADD COLUMN routine_id INT NULL AFTER pickup_type');
+    }
+    if (!columnExists($pdo, 'pickups', 'truck_id')) {
+        $pdo->exec('ALTER TABLE pickups ADD COLUMN truck_id INT NULL AFTER collector_id, ADD CONSTRAINT fk_pickups_truck FOREIGN KEY (truck_id) REFERENCES collector_trucks(id) ON DELETE SET NULL');
+    }
+    if (!columnExists($pdo, 'complaints', 'truck_id')) {
+        $pdo->exec('ALTER TABLE complaints ADD COLUMN truck_id INT NULL AFTER collector_id, ADD CONSTRAINT fk_complaints_truck FOREIGN KEY (truck_id) REFERENCES collector_trucks(id) ON DELETE SET NULL');
+    }
+    $pdo->exec("CREATE TABLE IF NOT EXISTS pickup_payments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        pickup_id INT NOT NULL UNIQUE,
+        citizen_id INT NOT NULL,
+        billing_category ENUM('informal_household','apartment','commercial_entity','institution') NOT NULL,
+        quantity INT UNSIGNED NOT NULL,
+        unit_type ENUM('bag','load') NOT NULL,
+        unit_price DECIMAL(10,2) NOT NULL,
+        total_amount DECIMAL(12,2) NOT NULL,
+        currency CHAR(3) NOT NULL DEFAULT 'UGX',
+        payment_timing ENUM('before_collection','on_pickup','monthly','annually') NOT NULL,
+        payment_method ENUM('airtel_money','mtn_momo','visa','mastercard') NOT NULL,
+        status ENUM('awaiting_payment','due_on_pickup','scheduled','paid','demo_paid','failed') NOT NULL DEFAULT 'awaiting_payment',
+        due_at DATE NULL,
+        external_reference VARCHAR(120) NULL,
+        paid_at DATETIME NULL,
+        demo_reference VARCHAR(120) NULL,
+        demo_paid_at DATETIME NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (pickup_id) REFERENCES pickups(id),
+        FOREIGN KEY (citizen_id) REFERENCES users(id)
+    )");
+    if (!columnExists($pdo, 'pickup_payments', 'demo_reference')) {
+        $pdo->exec("ALTER TABLE pickup_payments ADD COLUMN demo_reference VARCHAR(120) NULL AFTER paid_at, ADD COLUMN demo_paid_at DATETIME NULL AFTER demo_reference, MODIFY COLUMN status ENUM('awaiting_payment','due_on_pickup','scheduled','paid','demo_paid','failed') NOT NULL DEFAULT 'awaiting_payment'");
     }
 }
 
